@@ -1,0 +1,1 @@
+valgrind  --tool=memcheck --leak-check=yes ./cm_aln  -k30  /home/fpga/workspace/data/Ref/casmap2/DH10B/DH10B_WithDup_FinalEdit_validated.fasta  /home/fpga/workspace/data/DH10B/Test/DH10_400.bwa.read1.fastq   >  reads.sam

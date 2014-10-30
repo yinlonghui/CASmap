@@ -1,0 +1,3 @@
+#b   cm_search_next
+#
+r  -v4 -s30 /home/fpga/workspace/data/Ref/casmap2/DH10B/DH10B_WithDup_FinalEdit_validated.fasta ~/workspace/data/DH10B/Test/DH10_400.bwa.read1.fastq   >  reads.sam

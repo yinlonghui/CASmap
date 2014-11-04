@@ -88,7 +88,7 @@ typedef struct{
 
 #define aln_chain_v_init(av)  ( (av).n = 0 , (av).m = 1 , (av).a = malloc(sizeof(aln_chain_t)),  aln_chain_t_init((av).a[0],(av).size) )
 
-#define round_size(x)  ( (x)--, (x) |= (x) >> 1, (x) |= (x) >> 2 , (x) |= x >> 4 , (x) |= (x)>> 8 ,  (x)|= (x)>>16 , (x)++)
+#define round_size(x)  ( (x)--, (x) |= (x) >> 1, (x) |= (x) >> 2 , (x) |= (x)>> 4 , (x) |= (x)>> 8 ,  (x)|= (x)>>16 , (x)++)
 
 
 #define chain_at_add(at,s_aln) do{\

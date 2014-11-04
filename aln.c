@@ -26,7 +26,7 @@ KSORT_INIT(cm_seed_flt,aln_seed_t,flt_fuc)
 
 
 
-int   cm_meraln( aln_seed_v *kv_seed , int offset , const seq_t *pseq , const opt_t *opt)
+int   cm_meraln( aln_seed_v *kv_seed ,  const seq_t *pseq , const opt_t *opt)
 {
 	unsigned char *bseq ;
 
@@ -51,6 +51,7 @@ int   cm_meraln( aln_seed_v *kv_seed , int offset , const seq_t *pseq , const op
 			}
 		}
 	}
+	free(bseq);
 	return  kv_size(*kv_seed);
 }
 
@@ -93,23 +94,21 @@ void   cm_mergechain(aln_chain_v *av ,  aln_seed_v  *kv_seed)
 
 aln_chain_v *cm_mer2chain(const opt_t *opt , const seq_t *pseq)
 {
-	aln_chain_v  *av;
+	aln_chain_v  *av = malloc(sizeof(aln_chain_v));
 	aln_seed_v   *kv_seed ;
 	
 
 	int	offset = pseq->len + cal_max_gap(opt,pseq->len) -  opt->l_seed ;
 	
 //      initialize struct aln_seed_v 	
-	av = malloc(sizeof(aln_seed_v));
 	av->size = (int)((double)pseq->len/ opt->l_seed + 1.) ;
 	round_size(av->size);
 	aln_chain_v_init(*av);
 
 	kv_seed = malloc(sizeof(aln_seed_v));
-	if(cm_meraln(kv_seed , offset , pseq , opt))   cm_mergechain(av,kv_seed);
-
-
-
+	kv_init(*kv_seed);
+	av->offset = offset ;
+	if(cm_meraln(kv_seed , pseq , opt))   cm_mergechain(av,kv_seed);
 	kv_destroy(*kv_seed);
 	free(kv_seed);
 	return  av;
@@ -182,6 +181,7 @@ int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
  *
  */
 //		mark_chain_se(&av);
+		if(opt->verbose == 4 )test_pos(p->name , *av , 0 , opt->l_seed , opt);
 
 /*
  *		chain extend by linaer alignment and  smith-waterman extension.
@@ -191,7 +191,9 @@ int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
 /*
  * 	step4: Fmeas filter ...
  */
+
 		aln_chain_v_free(*av);
+		free(av);
 	}
 
 	return 0 ;

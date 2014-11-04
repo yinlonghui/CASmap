@@ -103,7 +103,6 @@ void _seqdb_get(seqdb *db,seq_t **p)
 		goto ERR0;
 	}
 	rc = getline(&pseq->name,&pseq->nlen,db->fin);
-	pseq->name[rc-1] = 0 ;
 	pseq->nlen = rc-1;
 	if(rc <= 0)
 		goto ERR0;

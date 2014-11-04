@@ -11,8 +11,6 @@
 #include "ksort.h"
 #include "utils.h"
 
-
-
 static inline int cal_max_gap (const opt_t *opt , int len)
 {	
 	int  l_del = (int)((double)(len*opt->a - opt->o_del)/opt->e_del + 1.);
@@ -22,41 +20,23 @@ static inline int cal_max_gap (const opt_t *opt , int len)
 	return  l < opt->w << 1 ? l : opt->w << 1;
 }
 
-/*
- * 	This alignment mode allow mismatch so that we must using the stack.
- */
 
 #define flt_fuc(a,b) ((a).ref_b < (b).ref_b)
 KSORT_INIT(cm_seed_flt,aln_seed_t,flt_fuc)
-aln_chain_v cm_inser_seed(const opt_t *opt , const seq_t *pseq)
-{
 
-//	int len = 0 ,beg = 0 ;
-	
+
+
+int   cm_meraln( aln_seed_v *kv_seed , int offset , const seq_t *pseq , const opt_t *opt)
+{
 	unsigned char *bseq ;
 
 	int	i  =  0  ;
-
-
-	kvec_t(aln_seed_t) kv_seed;
-	aln_seed_t  s_aln;
-
-	aln_chain_v  av;
 	
-	kv_init(kv_seed);
-
-	av.size = (int)((double)pseq->len/ opt->l_seed + 1.) ;
-	round_size(av.size);
-	av.offset =  pseq->len + cal_max_gap(opt,pseq->len) -  opt->l_seed ;
-	aln_chain_v_init(av);
-
-/*
- *	step1:	Generate seed  insert to chain 
- */
-
-//	len =  opt->l_seed ;
-	char2nt4(&bseq,pseq->len,pseq->seq,0); seq_complement(pseq->len ,bseq);
-//	exact match  int bwt_match_exact_cm(const bwt_t *bwt,int begin , int len , const unsigned char *str, bwtint_t *pk , bwtint_t *pl)
+	aln_seed_t  s_aln;
+	
+	char2nt4(&bseq,pseq->len,pseq->seq,0);
+	seq_complement(pseq->len ,bseq);
+	
 	for( i  = 0 ;  i  <  pseq->len - opt->l_seed + 1 ; i++){
 		bwtint_t  k , l;
 		k = 0 , l = opt->fr->idx->bwt->seq_len ;
@@ -67,45 +47,35 @@ aln_chain_v cm_inser_seed(const opt_t *opt , const seq_t *pseq)
 				s_aln.ref_b =  pos , s_aln.ref_e = pos + opt->l_seed ;
 				s_aln.query_b = i  , s_aln.query_e =  i + opt->l_seed ;
 	//			printf("query_b %d query_e %d ref_b %ld ref_e %ld \n",s_aln.query_b,s_aln.query_e,s_aln.ref_b,s_aln.ref_e);
-				kv_push(aln_seed_t,kv_seed,s_aln);
+				kv_push(aln_seed_t,*kv_seed,s_aln);
 			}
 		}
 	}
+	return  kv_size(*kv_seed);
+}
 
-	int j = 0  ;
-/*
- *      step2:  sorting  the seed ..
- *      There are many algorithm to choose..
- */
-	ks_introsort(cm_seed_flt,kv_size(kv_seed),kv_seed.a);
-	/*
-	 *  merge to one seed
-	 */ 
-	if(!kv_size(kv_seed)){
-		kv_destroy(kv_seed);
-		free(bseq);
-		return av;
-	}
+void   cm_mergechain(aln_chain_v *av ,  aln_seed_v  *kv_seed)
+{
+	int  j ; 
 	
-	s_aln = kv_A(kv_seed,0)	;
-	chain_at_add(av.a[av.n],s_aln);
-/*
- * 	merge  k-mer seed to  longer seed 
- */
-	
-	for ( j = 1 ;  j < kv_size(kv_seed) ; j++){
-		aln_seed_t p_aln = kv_A(kv_seed,j);
-		s_aln =  chain_av_last(av);
+	aln_seed_t  s_aln;
+//       first , regular merge seed .
+	ks_introsort(cm_seed_flt,kv_size(*kv_seed),kv_seed->a);
+	s_aln = kv_A(*kv_seed,0)	;
+	chain_at_add(av->a[av->n],s_aln);
+	for ( j = 1 ;  j < kv_size(*kv_seed) ; j++){
+		aln_seed_t p_aln = kv_A(*kv_seed,j);
+		s_aln =  chain_av_last(*av);
 		int l_ref = s_aln.ref_e -  p_aln.ref_e ;
 		int l_read = p_aln.query_b  - s_aln.query_b ;
 		if( l_read == l_ref && s_aln.ref_e >= p_aln.ref_b ){
 			s_aln.ref_e  =  p_aln.ref_e ;
 			s_aln.query_b = p_aln.query_b  ;
-			chain_av_last_c(av,s_aln);
-		}else if( p_aln.ref_e +  av.offset >=  s_aln.ref_b){
-			chain_at_add(av.a[av.n],p_aln);
+			chain_av_last_c(*av,s_aln);
+		}else if( p_aln.ref_e +  av->offset >=  s_aln.ref_b){
+			chain_at_add(av->a[av->n],p_aln);
 		}else {
-			chain_av_add(av,p_aln);
+			chain_av_add(*av,p_aln);
 		}
 
 	}
@@ -117,77 +87,71 @@ aln_chain_v cm_inser_seed(const opt_t *opt , const seq_t *pseq)
 *	 test unite ...
 */ 
 
-	kv_destroy(kv_seed);
-	free(bseq);
+//     second , sv seed merge 
+}
+
+
+aln_chain_v *cm_mer2chain(const opt_t *opt , const seq_t *pseq)
+{
+	aln_chain_v  *av;
+	aln_seed_v   *kv_seed ;
+	
+
+	int	offset = pseq->len + cal_max_gap(opt,pseq->len) -  opt->l_seed ;
+	
+//      initialize struct aln_seed_v 	
+	av = malloc(sizeof(aln_seed_v));
+	av->size = (int)((double)pseq->len/ opt->l_seed + 1.) ;
+	round_size(av->size);
+	aln_chain_v_init(*av);
+
+	kv_seed = malloc(sizeof(aln_seed_v));
+	if(cm_meraln(kv_seed , offset , pseq , opt))   cm_mergechain(av,kv_seed);
+
+
+
+	kv_destroy(*kv_seed);
+	free(kv_seed);
 	return  av;
 }
 
 
-/*
- * 	smith -waterman  alignment struct ...
- */
-typedef struct {
-	int query_b , query_e ;
-	bwtint_t ref_b ,  ref_e ;
 
-} aln_sw_t ;
-
-typedef  struct {
-	int m , n ;
-	aln_sw_t   *a ;
-} aln_sw_v ;
-
-void print_swv(aln_sw_v  asw)
-{
-	int i ;
-	for( i = 0 ; i < asw.n ; i++){
-		aln_sw_t  *p  =  asw.a + i ;
-		printf("rb = %ld  re = %ld  qb = %d  qe = %d \n",p->ref_b , p-> ref_e , p->query_b ,p->query_e);
-	}
-
-}
-/*
- *	step3: Chains can extend by Smith-waterman , The smith-waterman function in ksw.c can be reused.
- */
-
-#define MAX_BAND_TRY 2 
-#define CM_SHORT_LEN 200
-#define CM_SHORT_EX  50
-
-/*
- *   The short alignment based on sse2  don't  increase the accuracy. 
- */
 
 void  mark_chain_se(aln_chain_v *av)
 {
 	int i  ; 
 	for( i = 0 ; i < av->n ; i++){
 		aln_chain_t *at = av->a + i  ;
-		at->extend =  1 ;
+		at->flags =  ALLOW_EXTEND ;
 		//  before extend , calculate score ..  
 		//  filter strategies is going to implement ..
 	}
 }
 
-
-void  approximate_align(aln_chain_t *at)
+void cm_chain_extend(aln_chain_t *at  ,const opt_t *opt)
 {
-	int i;
+	int  i = 0 ;
 	for( i = 0 ; i < at->n ; i++){
-
+		// short ..
+		
+		// long
+		
+		// smith-waterman 
 
 
 	}
-}
 
 
-void  extend_align(aln_chain_t *at)
-{
-	;
 }
-void  chain2result(aln_chain_t *at)
+
+void  cm_disallow_extend(aln_chain_t *at , const opt_t *opt)
 {
-	;
+	int  i ;
+	for( i = 0 ; i < at->n ; i++){
+	//	res.sw_score  = 0 ;
+		;
+	}
 }
 
 int  print_sam()
@@ -195,71 +159,41 @@ int  print_sam()
 	return 0 ;
 }
 
-#define  cal_score(at)  (at->score =  0) 
 
-void  chain_extend(aln_chain_v *av){
+void  cm_chain2aln(aln_chain_v *av , const opt_t *opt ){
 	int  i ;
 	for( i = 0 ; i < av->n ; i++){
 		aln_chain_t *at = av->a + i  ;
-		if(at->extend){
-			//  approximately linear alignment 
-			approximate_align(at);	
-			//  extend by using smith-waterman 
-			extend_align(at);
-			//  after extend , calculate score ..
-			cal_score(at);
-		}else   chain2result(at);
-
+		if(is_extend(at)) cm_chain_extend(at,opt);
+		else	cm_disallow_extend(at,opt) ;
 	}
-
 }
 
-int  cm_chain_core(const opt_t *opt , const mseq_t *mseq)
+int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
 {
 	int  i ; 
+
 	for( i = 0 ; i  <  mseq->n_seq ; i++){
 		
 		seq_t *p =  mseq->seq + i ;
-		aln_chain_v av = cm_inser_seed(opt,p);
-		aln_sw_v    asw;
-		kv_init(asw);
-
-		if(opt->verbose == 2 ){
-			printf("%s\t",p->name);
-			print_av_info(av,opt);
-		}
-		if(opt->verbose == 3){
-			printf("%s\n",p->name);
-			test_bns(av,p,opt);
-		}
-		if(opt->verbose == 4){
-			test_pos(p->name ,av ,0 ,opt->l_seed ,opt);
-		}
-
+		aln_chain_v *av = cm_mer2chain(opt,p);
 /*
  *		mark chains  which not need verification.
  *
  */
-		mark_chain_se(&av);
+//		mark_chain_se(&av);
 
 /*
  *		chain extend by linaer alignment and  smith-waterman extension.
  */
-		chain_extend(&av);
-
-
-		
-		if(opt->verbose == 6){
-			if(asw.n)  printf("%s",p->name);
-			print_swv(asw);
-		}
+//		cm_chain2aln(&av,opt);
 		
 /*
  * 	step4: Fmeas filter ...
  */
-		kv_destroy(asw);
-		aln_chain_v_free(av);
+		aln_chain_v_free(*av);
 	}
+
 	return 0 ;
 }
 
@@ -310,7 +244,7 @@ void  multi_seq_free(mseq_t *s, int sel)
  * 	this section select good alignment , then  output.
  */
 
-int	cm_se()
+int	cm_se( const opt_t *opt , aln_res_v *rev)
 {
 	print_sam();
 
@@ -318,22 +252,27 @@ int	cm_se()
 }
 
 
-int  aln_core(opt_t *opt)
+int  aln_core(const opt_t *opt)
 {
 	mseq_t  *mseq;
+	int  i ;
+//     store alignment result 	
+	aln_res_v  *rev ;
 	
 	if(opt->flag & F_PE){
 		mseq = calloc(2,sizeof(mseq_t));
 		mseq[0].n_need = opt->n_need;
 		mseq[1].n_need = opt->n_need;
+		rev  = malloc(2*sizeof(aln_res_v));
+		kv_init(rev[0]);
+		kv_init(rev[1]);
+
 	}else  {
 		mseq =  calloc(1,sizeof(mseq_t));
 		mseq[0].n_need = opt->n_need ;
+		rev  = malloc(sizeof(aln_res_v));
+		kv_init(*rev);
 	}
-
-/*
- *	The optimizing strategy is establishing the cache to access 
- */
 
 	do{
 
@@ -353,19 +292,22 @@ int  aln_core(opt_t *opt)
 		}
 
 		if(opt->flag & F_PE){
-			cm_chain_core(opt,&mseq[0]);
-			cm_chain_core(opt,&mseq[1]);
-		}else   cm_chain_core(opt,&mseq[0]);
+			cm_chain_core(opt,&mseq[0],&rev[0]);
+			cm_chain_core(opt,&mseq[1],&rev[1]);
+		}else   cm_chain_core(opt,&mseq[0],rev);
 
-		if(opt->flag & F_PE)  cm_pe();
-		else	cm_se();
+		if(opt->flag & F_PE)  cm_pe(opt,rev);
+		else	cm_se(opt,rev);
 
 		multi_seq_free(mseq, 1 + (opt->flag&F_PE));
 		fprintf(stderr,"%ld reads have been processed\n",mseq[0].total_num);
 
 	}while(1);
-
-
+	for( i = 0 ; i < 1 + (opt->flag&F_PE) ; i++){
+		kv_destroy(rev[i]);
+	}
+	free(rev);
 	free(mseq);
+
 	return EXIT_SUCCESS;
 }

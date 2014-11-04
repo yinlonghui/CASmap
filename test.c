@@ -182,7 +182,6 @@ int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const o
 		if(val->right == 0)  err = 1 ;
 	}
 	if(err){
-		printf("%s\t",name);
 		for( i = 0 ; i < kpv->n  ; i++){
 			key_pos_t  *val =  kpv->val + i ;
 			printf("%d\t%d\t",val->beg,val->end);
@@ -196,7 +195,7 @@ int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const o
 				printf("%ld\t%ld\t",pos,pos+sp->ref_e-sp->ref_b);
 			}
 		}
-		printf("\n");
+		printf("%s",name);
 	}
 
 

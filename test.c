@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include "aln.h"
+#include "kvec.h"
 
 
 
@@ -20,12 +21,12 @@ void  print_av_info(aln_chain_v av , const opt_t *opt){
 	printf("\n");
 }
 
-void  print_at_info(aln_chain_t *at , const opt_t *opt){
+void  print_at_info(aln_chain_t *at ){
 
 	int  i ;
 	for(  i  = 0 ; i  <  at-> n ; i++){
 		aln_seed_t  *p  =  at->a +  i ;
-		printf("# qb:%d qe:%d tb:%ld te:%ld",p->query_b , p->query_e , p->ref_b , p->ref_e);
+		printf("# qb:%d qe:%d tb:%ld te:%ld\n",p->query_b , p->query_e , p->ref_b , p->ref_e);
 
 	}
 	printf("#\n");
@@ -205,4 +206,43 @@ int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const o
 
 
 	return 0 ;
+}
+
+
+void  unit_sv_seed(aln_seed_v *kv_seed , const opt_t *opt)
+{
+	int  i ;
+	aln_seed_t  s_aln ;
+	for( i = 0 ; i < 10 ; i++){
+		s_aln.ref_b = 100 - i ;
+		s_aln.ref_e = 100 + opt->l_seed - i ;
+		s_aln.query_b = i ;
+		s_aln.query_e = i+opt->l_seed ;
+		kv_push(aln_seed_t , *kv_seed ,s_aln);
+	#if 1
+		s_aln.ref_b = 100 - i ;
+		s_aln.ref_e = 100 + opt->l_seed - i ;
+		s_aln.query_b = i + 50 ;
+		s_aln.query_e = i +opt->l_seed + 50;
+		kv_push(aln_seed_t , *kv_seed ,s_aln);
+	#endif 
+	}
+	#if 1
+	i += opt->l_seed;
+	for( ; i < 50 ; i++){
+		s_aln.ref_b = 100 - i ;
+		s_aln.ref_e = 100 + opt->l_seed - i ;
+		s_aln.query_b = i ;
+		s_aln.query_e = i+opt->l_seed ;
+		kv_push(aln_seed_t , *kv_seed ,s_aln);
+	}
+	#endif
+	for( i = 0 ; i < kv_seed->n ; i++){
+		aln_seed_t  *p = kv_seed->a + i ;
+		printf("%ld\t%ld\t%d\t%d\n",p->ref_b , p->ref_e , p->query_b , p->query_e);
+
+	}
+	printf("****************************************\n");
+
+
 }

@@ -46,7 +46,7 @@ int   cm_meraln( aln_seed_v *kv_seed ,  const seq_t *pseq , const opt_t *opt)
 				pos = bwt_sa(opt->fr->idx->bwt,j);
 				s_aln.ref_b =  pos , s_aln.ref_e = pos + opt->l_seed ;
 				s_aln.query_b = i  , s_aln.query_e =  i + opt->l_seed ;
-	//			printf("query_b %d query_e %d ref_b %ld ref_e %ld \n",s_aln.query_b,s_aln.query_e,s_aln.ref_b,s_aln.ref_e);
+//				printf("query_b %d query_e %d ref_b %ld ref_e %ld \n",s_aln.query_b,s_aln.query_e,s_aln.ref_b,s_aln.ref_e);
 				kv_push(aln_seed_t,*kv_seed,s_aln);
 			}
 		}
@@ -55,31 +55,18 @@ int   cm_meraln( aln_seed_v *kv_seed ,  const seq_t *pseq , const opt_t *opt)
 	return  kv_size(*kv_seed);
 }
 
+//  rewrite ..
+
 void   cm_mergechain(aln_chain_v *av ,  aln_seed_v  *kv_seed)
 {
-	int  j ; 
+	int  j = 0  , i; 
 	
-	aln_seed_t  s_aln;
+	aln_seed_t  *s_aln;
+	bwtint_t    max =  0 ;
 //       first , regular merge seed .
 	ks_introsort(cm_seed_flt,kv_size(*kv_seed),kv_seed->a);
-	s_aln = kv_A(*kv_seed,0)	;
-	chain_at_add(av->a[av->n],s_aln);
-	for ( j = 1 ;  j < kv_size(*kv_seed) ; j++){
-		aln_seed_t p_aln = kv_A(*kv_seed,j);
-		s_aln =  chain_av_last(*av);
-		int l_ref = s_aln.ref_e -  p_aln.ref_e ;
-		int l_read = p_aln.query_b  - s_aln.query_b ;
-		if( l_read == l_ref && s_aln.ref_e >= p_aln.ref_b ){
-			s_aln.ref_e  =  p_aln.ref_e ;
-			s_aln.query_b = p_aln.query_b  ;
-			chain_av_last_c(*av,s_aln);
-		}else if( p_aln.ref_e +  av->offset >=  s_aln.ref_b){
-			chain_at_add(av->a[av->n],p_aln);
-		}else {
-			chain_av_add(*av,p_aln);
-		}
-
-	}
+	s_aln = kv_seed->a ;
+	push_chain_seed(*av,*s_aln,aln_seed_t,0);
 /*
 *	  check whether chain have unmerge seed.
 *	  eg:  ref: ------ACCCTGATCCCTGA------
@@ -88,7 +75,32 @@ void   cm_mergechain(aln_chain_v *av ,  aln_seed_v  *kv_seed)
 *	 test unite ...
 */ 
 
-//     second , sv seed merge 
+	for ( i = 1 ;  i < kv_size(*kv_seed) ; i++){
+		aln_chain_t  *p  =  av->a + av->n ; 
+		s_aln = kv_seed->a + i ;
+		
+		for(  j = 0   ;  j  < p->n ; j++){
+			aln_seed_t *p_aln =  p->a + j;
+			if(max < p_aln->ref_e )  max = p_aln->ref_e ;
+			if(p_aln->ref_e <= s_aln->ref_b) continue ;
+			int	l_read =  p_aln->query_b  - s_aln->query_b ;
+			int	l_ref  =  s_aln->ref_e  -  p_aln->ref_e ;
+			// must record  max  ref_b 
+			if(l_read == l_ref){
+				p_aln->ref_e =  s_aln->ref_e ;
+				p_aln->query_b = s_aln->query_b ;
+				break;
+			}
+		}
+		if( j == p->n ){
+			//   other push style ..
+			if( max + av->offset > s_aln->ref_b ){
+				kv_push(aln_seed_t ,*p, *s_aln);
+			}else { 
+				push_chain(*av,aln_chain_t,*s_aln,aln_seed_t);
+			}
+		}
+	}
 }
 
 
@@ -108,7 +120,10 @@ aln_chain_v *cm_mer2chain(const opt_t *opt , const seq_t *pseq)
 	kv_seed = malloc(sizeof(aln_seed_v));
 	kv_init(*kv_seed);
 	av->offset = offset ;
-	if(cm_meraln(kv_seed , pseq , opt))   cm_mergechain(av,kv_seed);
+	if(opt->verbose == 2){
+		unit_sv_seed(kv_seed , opt);
+		cm_mergechain(av,kv_seed);
+	}else  if(cm_meraln(kv_seed , pseq , opt))   cm_mergechain(av,kv_seed);
 	kv_destroy(*kv_seed);
 	free(kv_seed);
 	return  av;
@@ -181,7 +196,8 @@ int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
  *
  */
 //		mark_chain_se(&av);
-		if(opt->verbose == 4 )test_pos(p->name , *av , 0 , opt->l_seed , opt);
+		if(opt->verbose == 1 )
+			test_pos(p->name , *av , 0 , opt->l_seed , opt);
 
 /*
  *		chain extend by linaer alignment and  smith-waterman extension.

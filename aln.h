@@ -2,6 +2,7 @@
 #define __ALN_H
 #include "seq.h"
 #include "bwa.h"
+#include "kvec.h"
 #define  F_PE  1
 
 typedef struct {
@@ -51,17 +52,6 @@ typedef struct {
 #define  is_overlap(at) (at->flags & HAVE_OVERLAP)
 
 typedef struct {
-	aln_seed_t  *a ;
-	int	flags;
-	int	m,n;
-} aln_chain_t ;
-
-typedef struct {
-	aln_chain_t *a;
-	int     m,n,size,offset;
-} aln_chain_v;
-
-typedef struct {
 	aln_seed_t *a  ;
 	int n , m ;
 } aln_seed_v ;
@@ -84,27 +74,39 @@ typedef struct{
 	aln_res_t *a ;
 } aln_res_v ;
 
+typedef struct {
+	aln_seed_t  *a ;
+	int	flags;
+	int	m,n;
+} aln_chain_t ;
+
+typedef struct {
+	aln_chain_t *a;
+	int     m,n,size,offset;
+} aln_chain_v;
+
+
 #define aln_chain_t_init(at,size) ((at).m  = (size) , (at).n = 0 , (at).a =  malloc((size)*sizeof(aln_seed_t)))
 
 #define aln_chain_v_init(av)  ( (av).n = 0 , (av).m = 1 , (av).a = malloc(sizeof(aln_chain_t)),  aln_chain_t_init((av).a[0],(av).size) )
 
 #define round_size(x)  ( (x)--, (x) |= (x) >> 1, (x) |= (x) >> 2 , (x) |= (x)>> 4 , (x) |= (x)>> 8 ,  (x)|= (x)>>16 , (x)++)
+//  too  slow ..
+#define get_top_value(v)  ((v).a[(v).n-1])
 
+#define push_chain_seed(av,seed,type,i)  kv_push(type,(av).a[i],seed)
 
-#define chain_at_add(at,s_aln) do{\
-	if((at).m ==  (at).n)  (at).m =  (at).m << 1 ,  (at).a = realloc((at).a , (at).m*sizeof(aln_seed_t)) ; \
-	at.a[at.n++] = s_aln ;  \
-}while(0)\
-
-#define chain_av_add(av,s_aln) do{\
+#define push_chain(av,v_tpye, seed,s_tpye) do{\
 	(av).n++;\
-	if((av).m ==  (av).n)  (av).m =  (av).m << 1 , (av).a = realloc((av).a , (av).m*sizeof(aln_chain_t)) ; \
-	aln_chain_t_init((av).a[(av).n], (av).size);\
-	chain_at_add((av).a[(av).n],s_aln); \
-}while(0)\
+	if((av).n == (av).m ){\
+		(av).m =  (av).m << 1 ;  \
+		(av).a = realloc((av).a ,sizeof(v_tpye)*(av).m);\
+	}\
+	aln_chain_t_init((av).a[(av).n],(av).size); \
+	kv_push(s_tpye,(av).a[(av).n],seed);\
+}while(0)
 
-#define chain_av_last(av)   (av).a[(av).n].a[(av).a[(av).n].n -1]
-#define chain_av_last_c(av,s_aln) (av).a[(av).n].a[(av).a[(av).n].n -1] = s_aln
+
 
 #define aln_chain_v_free(av)  do{\
 				int  chain_i = 0 ;\
@@ -112,6 +114,10 @@ typedef struct{
 					free((av).a[chain_i].a);\
 				free((av).a);\
 }while(0)\
+
+//void  inline  
+
+
 
 
 int aln_core(const opt_t *opt);
@@ -135,10 +141,12 @@ typedef struct{
 	int    n;
 } key_pos_v ;
 
+//   for unit test fuction 
 void  print_av_info(aln_chain_v av , const opt_t *opt);
-void  print_at_info(aln_chain_t *at , const opt_t *opt);
+void  print_at_info(aln_chain_t *at);
 int  test_bns(const aln_chain_v av , const seq_t *seq ,const opt_t *opt );
 int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const opt_t *opt);
+void  unit_sv_seed(aln_seed_v *kv_seed ,const opt_t *opt);
 
 
 #endif

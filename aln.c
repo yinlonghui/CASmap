@@ -21,8 +21,6 @@ static inline int cal_max_gap (const opt_t *opt , int len)
 }
 
 
-#define flt_fuc(a,b) ((a).ref_b < (b).ref_b)
-KSORT_INIT(cm_seed_flt,aln_seed_t,flt_fuc)
 
 
 
@@ -55,7 +53,8 @@ int   cm_meraln( aln_seed_v *kv_seed ,  const seq_t *pseq , const opt_t *opt)
 	return  kv_size(*kv_seed);
 }
 
-//  rewrite ..
+#define flt_fuc(a,b) ((a).ref_b < (b).ref_b)
+KSORT_INIT(cm_seed_flt,aln_seed_t,flt_fuc)
 
 void   cm_mergechain(aln_chain_v *av ,  aln_seed_v  *kv_seed)
 {
@@ -67,25 +66,23 @@ void   cm_mergechain(aln_chain_v *av ,  aln_seed_v  *kv_seed)
 	ks_introsort(cm_seed_flt,kv_size(*kv_seed),kv_seed->a);
 	s_aln = kv_seed->a ;
 	push_chain_seed(*av,*s_aln,aln_seed_t,0);
-/*
-*	  check whether chain have unmerge seed.
-*	  eg:  ref: ------ACCCTGATCCCTGA------
-*	  	reads     ACCCTGATCCCTGACCCTGATCCC
-*	 example:   tandemCNV 
-*	 test unite ...
-*/ 
 
 	for ( i = 1 ;  i < kv_size(*kv_seed) ; i++){
 		aln_chain_t  *p  =  av->a + av->n ; 
 		s_aln = kv_seed->a + i ;
 		
 		for(  j = 0   ;  j  < p->n ; j++){
+			/*
+			*	  check whether chain have unmerge seed.
+			*	  eg:  ref: ------ACCCTGATCCCTGA------
+			*	  	reads     ACCCTGATCCCTGACCCTGATCCC
+			*	 example:   tandemCNV 
+			*/ 
 			aln_seed_t *p_aln =  p->a + j;
 			if(max < p_aln->ref_e )  max = p_aln->ref_e ;
 			if(p_aln->ref_e <= s_aln->ref_b) continue ;
 			int	l_read =  p_aln->query_b  - s_aln->query_b ;
 			int	l_ref  =  s_aln->ref_e  -  p_aln->ref_e ;
-			// must record  max  ref_b 
 			if(l_read == l_ref){
 				p_aln->ref_e =  s_aln->ref_e ;
 				p_aln->query_b = s_aln->query_b ;
@@ -93,7 +90,6 @@ void   cm_mergechain(aln_chain_v *av ,  aln_seed_v  *kv_seed)
 			}
 		}
 		if( j == p->n ){
-			//   other push style ..
 			if( max + av->offset > s_aln->ref_b ){
 				kv_push(aln_seed_t ,*p, *s_aln);
 			}else { 
@@ -132,34 +128,89 @@ aln_chain_v *cm_mer2chain(const opt_t *opt , const seq_t *pseq)
 
 
 
-void  mark_chain_se(aln_chain_v *av)
+void  mark_chain_se(aln_chain_v *av ,const opt_t *opt)
 {
-	int i  ; 
-	for( i = 0 ; i < av->n ; i++){
+	int i , j ; 
+	for( i = 0 ; i < av->n + 1 ; i++){
 		aln_chain_t *at = av->a + i  ;
-		at->flags =  ALLOW_EXTEND ;
-		//  before extend , calculate score ..  
+		//  calculate seedcov 
+		at->seedcov = 0 ;
+		for( j = 0  ;  j < at->n ; j++){
+			aln_seed_t *p = at->a + j;
+			at->seedcov += p->query_e - p->query_b ;
+		}
+		if(at->n >= 2 || at->seedcov >= 50 ) at->flags =  ALLOW_EXTEND ;
+		else	at->flags  = 0 ;
 		//  filter strategies is going to implement ..
 	}
 }
 
-void cm_chain_extend(aln_chain_t *at  ,const opt_t *opt)
+
+
+void cm_chain_extend(aln_chain_t *at, aln_res_v *rev ,const seq_t *seq , const opt_t *opt)
 {
-	int  i = 0 ;
-	for( i = 0 ; i < at->n ; i++){
-		// short ..
-		
-		// long
-		
-		// smith-waterman 
-
-
+	int i  , k  ;
+	for(i = 0 ; i < at->n ; i++){
+		aln_seed_t *p = at->a + i ;
+		p->flags  =  ALLOW_EXTEND ;
 	}
 
+	for( i = 0 ; i < at->n ; i++){
+		aln_seed_t *p = at->a + i ;
+		if(is_extend(*p)){
+			//    push ... result ..
+			aln_res_t   res ;
+			//    reference  ID 
+			res.ref_b  =  p->ref_b ;
+			res.ref_e  =  p->ref_e ;
+			res.query_b = p->query_b ;
+			res.query_e = p->query_e ;
+			//  left 
+			for(  k = i-1   ;  k >= 0 ;  k--){
+				if(1){
+				/* overlap */ 
+					continue;
+				}
+				if(1){ 
+				/* short extend.. */
+					;
+					
+				}
+				else  if(1){
+				/* long  extend  */
+					;
 
+				}
+			}
+			if(res.query_b){
+				// left side smith-waterman 
+				;
+
+			}
+			for(  k = i+1 ;  k < at->n ;  k++){
+				if(1){
+					continue;
+				}
+				if(1){
+					;
+					
+				}
+				if(1){
+					;
+
+				}
+			}
+			if(res.query_e != 101 ){
+				//  right side smith-waterman 
+				;
+			}
+			kv_push( aln_res_t , *rev , res);
+		}
+		
+	}
 }
 
-void  cm_disallow_extend(aln_chain_t *at , const opt_t *opt)
+void  cm_disallow_extend(aln_chain_t *at , aln_res_v *rev , const opt_t *opt)
 {
 	int  i ;
 	for( i = 0 ; i < at->n ; i++){
@@ -174,13 +225,15 @@ int  print_sam()
 }
 
 
-void  cm_chain2aln(aln_chain_v *av , const opt_t *opt ){
+void  cm_chain2aln(aln_chain_v *av , aln_res_v *rev , const seq_t *seq ,const opt_t *opt ){
 	int  i ;
-	for( i = 0 ; i < av->n ; i++){
+	for( i = 0 ; i < av->n + 1 ; i++){
 		aln_chain_t *at = av->a + i  ;
-		if(is_extend(at)) cm_chain_extend(at,opt);
-		else	cm_disallow_extend(at,opt) ;
+		if(is_extend(*at)) cm_chain_extend(at,rev,seq,opt);
+		else	cm_disallow_extend(at,rev,opt) ;
 	}
+	if(opt->verbose == 3)  unit_extend_1();
+
 }
 
 int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
@@ -191,18 +244,19 @@ int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
 		
 		seq_t *p =  mseq->seq + i ;
 		aln_chain_v *av = cm_mer2chain(opt,p);
+
+		if(opt->verbose == 1 )  test_pos(p->name , *av , 0 , opt->l_seed , opt);
+
 /*
  *		mark chains  which not need verification.
  *
  */
-//		mark_chain_se(&av);
-		if(opt->verbose == 1 )
-			test_pos(p->name , *av , 0 , opt->l_seed , opt);
+		mark_chain_se(av,opt);
 
 /*
  *		chain extend by linaer alignment and  smith-waterman extension.
  */
-//		cm_chain2aln(&av,opt);
+		cm_chain2aln(av,rev,p,opt);
 		
 /*
  * 	step4: Fmeas filter ...

@@ -67,26 +67,32 @@ int  key_cmp(const void *p1  , const void *p2)
 	return  (ss2->beg > ss1->beg) - (ss1->beg > ss2->beg);
 }
 
+typedef struct {
+	int  pos[2];
+	int  strand[2];
+	key_pos_v  *kpv;
+} DNAA_info ;
 
-int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const opt_t *opt)
+DNAA_info *gain_test_name_info(char *name , int l_seed , int sel)
 {
 	char  *tmp =  strstr(name,"rand");
+	DNAA_info   *info  = NULL  ; 
 	int   i , n_cigar ;
-	int   pos[2] , strand[2] ;
 
-	if(tmp){
-		return 0 ;
-	}
+	if(tmp)  return info ;
+
+	info = malloc(sizeof(DNAA_info));
+
 	tmp = name ;
 
 	for( i = 0 ; i < 7 ; i++){
 		tmp =  strstr(tmp,"_");
 		tmp++;
 		switch(i){
-			case 0:  pos[0] = atoi(tmp); break;
-			case 1:  pos[1] = atoi(tmp); break;
-			case 2:  strand[0] = atoi(tmp); break;
-			case 3:  strand[1] = atoi(tmp); break;
+			case 0:  info->pos[0] = atoi(tmp); break;
+			case 1:  info->pos[1] = atoi(tmp); break;
+			case 2:  info->strand[0] = atoi(tmp); break;
+			case 3:  info->strand[1] = atoi(tmp); break;
 
 		}
 		
@@ -119,8 +125,8 @@ int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const o
 	char *p ;
 	n_cigar = 0 ;
 
-	pos[0]--;
-	pos[1]--;
+	info->pos[0]--;
+	info->pos[1]--;
 
 	for( p = tmp ; *p != '/' ; p++)
 		if(!isdigit(*p)) n_cigar++;
@@ -131,11 +137,11 @@ int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const o
 		cigar[i].op =  *tmp;
 	//	printf("%d%c",cigar[i].len,*tmp);
 	}
-//	printf("\t");
-	key_pos_v  *kpv = malloc(sizeof(key_pos_v));
-	kpv->val = calloc(n_cigar,sizeof(key_pos_t));
-	kpv->n  = 0 ;
+	info->kpv = malloc(sizeof(key_pos_v));
+	info->kpv->val = calloc(n_cigar,sizeof(key_pos_t));
+	info->kpv->n  = 0 ;
 
+	int	pos =  info->pos[sel];
 	
 	for( i = 0 ; i < n_cigar ; i++){
 		cigar_t *c = cigar + i ;
@@ -143,24 +149,35 @@ int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const o
 			case 'M': 
 				if(c->len >= l_seed) {
 				//	printf("%d\t%d\t",pos[sel],pos[sel]+c->len); 
-					key_pos_t  *val =  kpv->val + kpv->n ;
-					val->beg =  pos[sel] ;
-					val->end =  pos[sel] + c->len ;
-					kpv->n++ ;
+					key_pos_t  *val =  info->kpv->val + info->kpv->n ;
+					val->beg =  pos ;
+					val->end =  pos + c->len ;
+					info->kpv->n++ ;
 				}
-				pos[sel]+= c->len ;
+				pos += c->len ;
 				break;
-			case 'U':  pos[sel]+= c->len ; break ;
+			case 'U':  pos+= c->len ; break ;
 			case 'I':  break ; 
-			case 'D':  pos[sel]+= c->len ; break ;
+			case 'D':  pos+= c->len ; break ;
 		}
 
 	}
-	if(!strand[sel]) qsort(kpv->val , kpv->n , sizeof(key_pos_t), key_cmp );
-	/* 		
-	}
-	*/ 
-	int j , k ;
+
+	free(cigar);
+
+	return info ;
+}
+
+/*
+ * 	unit for chain's pos , overlap exmaple 21M1I70M   return  22M  70M .
+ */
+
+int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const opt_t *opt)
+{
+	DNAA_info *info = gain_test_name_info(name,l_seed,sel);
+	if(!info) return 0 ;
+	if(!info->strand[sel]) qsort(info->kpv->val , info->kpv->n , sizeof(key_pos_t), key_cmp );
+	int i , j , k ;
 	for( j = 0 ;  j  <  av.n + 1 ; j++){
 		aln_chain_t *p  = av.a + j ;
 		for( k = 0 ; k < p->n ; k++ ){
@@ -168,23 +185,22 @@ int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const o
 			int is_rev;
 			bwtint_t pos = bns_depos(opt->fr->idx->bns, sp->ref_b > opt->fr->idx->bns->l_pac ? sp->ref_e - 1 : sp->ref_b, &is_rev);  
 		//	printf("%ld\t%ld\t",pos,pos+sp->ref_e-sp->ref_b);
-			for( i = 0 ; i < kpv->n  ; i++){
-				key_pos_t  *val =  kpv->val + i ;
+			for( i = 0 ; i < info->kpv->n  ; i++){
+				key_pos_t  *val =  info->kpv->val + i ;
 				if(val->beg == pos &&  pos+sp->ref_e-sp->ref_b == val->end){
 					val->right = 1 ;
 				}
 			}
 		}
 	}
-
 	int  err = 0 ;
-	for( i = 0 ; i < kpv->n  ; i++){
-		key_pos_t  *val =  kpv->val + i ;
+	for( i = 0 ; i < info->kpv->n  ; i++){
+		key_pos_t  *val =  info->kpv->val + i ;
 		if(val->right == 0)  err = 1 ;
 	}
 	if(err){
-		for( i = 0 ; i < kpv->n  ; i++){
-			key_pos_t  *val =  kpv->val + i ;
+		for( i = 0 ; i < info->kpv->n  ; i++){
+			key_pos_t  *val =  info->kpv->val + i ;
 			printf("%d\t%d\t",val->beg,val->end);
 		}
 		for( j = 0 ;  j  <  av.n + 1 ; j++){
@@ -198,16 +214,17 @@ int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const o
 		}
 		printf("%s",name);
 	}
-
-
-	free(cigar);
-	free(kpv->val);
-	free(kpv);
-
-
+	free(info->kpv->val);
+	free(info->kpv);
+	free(info);
 	return 0 ;
 }
 
+
+/*
+ * 	unit for the repeat same coordinate on difference seeds
+ * 	generate  this seed.  verbose == 2 
+ */
 
 void  unit_sv_seed(aln_seed_v *kv_seed , const opt_t *opt)
 {
@@ -245,4 +262,23 @@ void  unit_sv_seed(aln_seed_v *kv_seed , const opt_t *opt)
 	printf("****************************************\n");
 
 
+}
+/*
+ * 	unit for two seed short merge ..
+ */
+int	unit_extend_1( char *name , aln_res_v  *rev , int sel , int l_seed , const opt_t *opt)
+{
+	DNAA_info *info = gain_test_name_info(name,l_seed,sel);
+	if(!info) return 0 ;
+
+	int  i ;
+	for( i = 0 ; i < rev->n ; i++){
+		aln_res_t  *p =  rev->a + i ; 
+		printf("%d\n",p->app_score);
+	}
+
+	free(info->kpv->val);
+	free(info->kpv);
+	free(info);
+	return 0 ;
 }

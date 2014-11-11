@@ -22,12 +22,12 @@ typedef struct {
 	int  a , b;
 	int  o_del , o_ins ;
 	int  e_ins , e_del ;
+	int  overlap ;
 	int  pen_clip5 , pen_clip3 ;
 	int  zdrop ;
 	int  w;
 	int  n_need ;
 	int  l_seed ;
-	int  CC_stack;
 	int  verbose;
 	int  flag;
 } opt_t ;
@@ -45,11 +45,9 @@ typedef struct {
 	int	 flags ;
 } aln_seed_t;
 
-#define  ALLOW_EXTEND  1 
-#define  HAVE_OVERLAP  2
 
-#define  is_extend(at) (at->flags & ALLOW_EXTEND)
-#define  is_overlap(at) (at->flags & HAVE_OVERLAP)
+#define  is_extend(at) ((at).flags & ALLOW_EXTEND)
+#define  is_overlap(at) ((at).flags & HAVE_OVERLAP)
 
 typedef struct {
 	aln_seed_t *a  ;
@@ -77,8 +75,12 @@ typedef struct{
 typedef struct {
 	aln_seed_t  *a ;
 	int	flags;
+	int	seedcov;
 	int	m,n;
 } aln_chain_t ;
+
+#define  ALLOW_EXTEND  1 
+#define  HAVE_OVERLAP  2
 
 typedef struct {
 	aln_chain_t *a;
@@ -147,6 +149,7 @@ void  print_at_info(aln_chain_t *at);
 int  test_bns(const aln_chain_v av , const seq_t *seq ,const opt_t *opt );
 int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const opt_t *opt);
 void  unit_sv_seed(aln_seed_v *kv_seed ,const opt_t *opt);
+int	unit_extend_1( char *name , aln_res_v  *rev , int sel , int l_seed , const opt_t *opt);
 
 
 #endif

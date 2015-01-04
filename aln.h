@@ -16,21 +16,32 @@ typedef struct{
 }  file_ref_t;
 
 typedef struct {
+	/* record seqdb and  refdb */
 	file_seq_t *fs;
 	file_ref_t *fr;
+	/*  match(a) and mismatche(b) score  , and matrix */
 	int8_t mat[25];
 	int  a , b;
+	/*  penalty gap and extension*/
 	int  o_del , o_ins ;
 	int  e_ins , e_del ;
 	int  overlap ;
+	/*  extension local alignment */
 	int  pen_clip5 , pen_clip3 ;
 	int  zdrop ;
 	int  w;
+	/*   nunmber of need reads  */
 	int  n_need ;
+	/* length seed (k-mer)*/
 	int  l_seed ;
 	int  verbose;
 	int  flag;
 } opt_t ;
+
+
+/*
+ *  fastq structure 
+ */
 
 typedef struct {
 	seq_t	*seq;
@@ -43,11 +54,13 @@ typedef struct {
 	bwtint_t ref_b,   ref_e;
 	int	 query_b, query_e;
 	int	 flags ;
+	int	len ;
 } aln_seed_t;
 
 
 #define  is_extend(at) ((at).flags & ALLOW_EXTEND)
 #define  is_overlap(at) ((at).flags & HAVE_OVERLAP)
+#define  DISALLOW_EXTEND   (~ALLOW_EXTEND)
 
 typedef struct {
 	aln_seed_t *a  ;
@@ -58,7 +71,7 @@ typedef struct{
 	bwtint_t ref_b,   ref_e;
 	int	query_b, query_e;
 	int	rid;
-//      approximate  value 
+//      approximate  information 
 	int	n_mis ;
 	int	n_gap ;
 	int	n_ext ;
@@ -87,6 +100,7 @@ typedef struct {
 	int     m,n,size,offset;
 } aln_chain_v;
 
+//   The marco handle chain vector
 
 #define aln_chain_t_init(at,size) ((at).m  = (size) , (at).n = 0 , (at).a =  malloc((size)*sizeof(aln_seed_t)))
 
@@ -117,14 +131,17 @@ typedef struct {
 				free((av).a);\
 }while(0)\
 
-//void  inline  
 
 
 
 
 int aln_core(const opt_t *opt);
-int cm_pe(const opt_t *opt , aln_res_v *rev);
+int cm_pe(const opt_t *opt , aln_res_v *rev[2]);
 int print_sam();
+
+
+//  import  other file function 
+
 
 
 //  for  unit test  
@@ -144,12 +161,16 @@ typedef struct{
 } key_pos_v ;
 
 //   for unit test fuction 
-void  print_av_info(aln_chain_v av , const opt_t *opt);
-void  print_at_info(aln_chain_t *at);
-int  test_bns(const aln_chain_v av , const seq_t *seq ,const opt_t *opt );
-int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const opt_t *opt);
-void  unit_sv_seed(aln_seed_v *kv_seed ,const opt_t *opt);
-int	unit_extend_1( char *name , aln_res_v  *rev , int sel , int l_seed , const opt_t *opt);
-
+extern void  print_av_info(aln_chain_v av , const opt_t *opt);
+extern void  print_at_info(aln_chain_t *at);
+extern void  print_res_info(aln_res_t  *at);
+extern void  print_resv_info(aln_res_v *av);
+extern int  test_bns(const aln_chain_v av , const seq_t *seq ,const opt_t *opt );
+extern int	test_pos(char *name ,  const aln_chain_v  av , int sel , int l_seed ,const opt_t *opt);
+extern void  unit_sv_seed(aln_seed_v *kv_seed ,const opt_t *opt);
+extern int	unit_extend_1( char *name , aln_res_v  *rev , int sel , int l_seed , const opt_t *opt);
+extern int	find_mismatch( char *name , int l_seed , int sel);
+extern int	find_insertion( char *name , int l_seed , int sel);
+extern int	find_deletion( char *name , int l_seed , int sel);
 
 #endif

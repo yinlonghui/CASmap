@@ -7,6 +7,10 @@
 
 
 
+/*
+ *	print  structure chain's vector information
+ */
+
 void  print_av_info(aln_chain_v av , const opt_t *opt){
 	int j , k ;
 	for( j = 0 ;  j  <  av.n + 1 ; j++){
@@ -21,6 +25,10 @@ void  print_av_info(aln_chain_v av , const opt_t *opt){
 	printf("\n");
 }
 
+/*
+ *	print   structure  chain's seed  information
+ */
+
 void  print_at_info(aln_chain_t *at ){
 
 	int  i ;
@@ -32,6 +40,12 @@ void  print_at_info(aln_chain_t *at ){
 	printf("#\n");
 
 }
+
+/*
+ *	test  if reads sequence  and the corresponding coordinate's sequence   are same
+ *    
+ *	test data  is DH10B ,  base N is exception. 
+ */
 
 int  test_bns(const aln_chain_v av , const seq_t *seq ,const opt_t *opt )
 {
@@ -45,20 +59,19 @@ int  test_bns(const aln_chain_v av , const seq_t *seq ,const opt_t *opt )
 			uint8_t	 *rseq = NULL ;  //  reference sequence ..
 			char2nt4(&bseq,seq->len,seq->seq,0);
 			seq_reverse(seq->len,bseq);
+		//	seq_complement(seq->len,bseq);
 			rseq = bns_get_seq(opt->fr->idx->bns->l_pac , opt->fr->idx->pac , q->ref_b , q->ref_e , &rlen);
-			for( k = seq->len - q->query_e  ; k < seq->len - q->query_b ; k++){
-				printf("%c","ACGT"[bseq[k]]);
+			for( k = q->query_b  , l = 0 ; k < q->query_e && l < rlen; k++ , l++){
+				if(bseq[k] != rseq[l])  printf("error\n");
 			}
-			printf("\n");
-			for ( l = 0 ; l < rlen ; l++)
-				printf("%c","ACGT"[rseq[l]]);
-			printf("\n");
 			free(bseq);
 			free(rseq);
 		}
 	}
 	return 0 ;
 }
+
+/*	compare fuction		*/
 
 int  key_cmp(const void *p1  , const void *p2)
 {
@@ -68,10 +81,19 @@ int  key_cmp(const void *p1  , const void *p2)
 }
 
 typedef struct {
-	int  pos[2];
-	int  strand[2];
+	int  pos[2];  //  simulation  coordinate
+	int  strand[2];  // simulation  strand 
+	int  n_mis ;  // simulation  number of mismatch
+	int  n_ins ;  // simulation  number of insertion
+	int  n_del ;  // simulation  number of deletion 
 	key_pos_v  *kpv;
 } DNAA_info ;
+
+/*
+ *      catch the information of DNNA reads  by sequence name , find the reads match information  .
+ *      @abstract
+ *      exact match length  > l_seed  , the coordinate  push  key_pos_v . 
+ */
 
 DNAA_info *gain_test_name_info(char *name , int l_seed , int sel)
 {
@@ -82,6 +104,8 @@ DNAA_info *gain_test_name_info(char *name , int l_seed , int sel)
 	if(tmp)  return info ;
 
 	info = malloc(sizeof(DNAA_info));
+
+	info->n_mis = info->n_ins = info->n_del = 0 ;
 
 	tmp = name ;
 
@@ -156,9 +180,9 @@ DNAA_info *gain_test_name_info(char *name , int l_seed , int sel)
 				}
 				pos += c->len ;
 				break;
-			case 'U':  pos+= c->len ; break ;
-			case 'I':  break ; 
-			case 'D':  pos+= c->len ; break ;
+			case 'U':  pos+= c->len ; info->n_mis++;  break ;
+			case 'I':  info->n_ins+= c->len ; break ; 
+			case 'D':  pos+= c->len ; info->n_del+= c->len ; break ;
 		}
 
 	}
@@ -231,26 +255,26 @@ void  unit_sv_seed(aln_seed_v *kv_seed , const opt_t *opt)
 	int  i ;
 	aln_seed_t  s_aln ;
 	for( i = 0 ; i < 10 ; i++){
-		s_aln.ref_b = 100 - i ;
-		s_aln.ref_e = 100 + opt->l_seed - i ;
-		s_aln.query_b = i ;
-		s_aln.query_e = i+opt->l_seed ;
+		s_aln.ref_b = 120 - opt->l_seed - i ;
+		s_aln.ref_e = 120 - i ;
+		s_aln.query_b = 120 - opt->l_seed - i ;
+		s_aln.query_e = 120 - i ;
 		kv_push(aln_seed_t , *kv_seed ,s_aln);
 	#if 1
-		s_aln.ref_b = 100 - i ;
-		s_aln.ref_e = 100 + opt->l_seed - i ;
-		s_aln.query_b = i + 50 ;
-		s_aln.query_e = i +opt->l_seed + 50;
+		s_aln.ref_b = 120 - opt->l_seed - i ;
+		s_aln.ref_e = 120 - i ;
+		s_aln.query_b = 70 - opt->l_seed - i ;
+		s_aln.query_e = 70 - i ;
 		kv_push(aln_seed_t , *kv_seed ,s_aln);
 	#endif 
 	}
-	#if 1
+	#if 0
 	i += opt->l_seed;
 	for( ; i < 50 ; i++){
-		s_aln.ref_b = 100 - i ;
-		s_aln.ref_e = 100 + opt->l_seed - i ;
-		s_aln.query_b = i ;
-		s_aln.query_e = i+opt->l_seed ;
+		s_aln.ref_b = 50 + i ;
+		s_aln.ref_e = 50 + opt->l_seed + i ;
+		s_aln.query_b = 120 - opt->l_seed + i ;
+		s_aln.query_e = 120 - i ;
 		kv_push(aln_seed_t , *kv_seed ,s_aln);
 	}
 	#endif
@@ -271,7 +295,7 @@ int	unit_extend_1( char *name , aln_res_v  *rev , int sel , int l_seed , const o
 	DNAA_info *info = gain_test_name_info(name,l_seed,sel);
 	if(!info) return 0 ;
 
-	int  i ;
+	int  i  ;
 	for( i = 0 ; i < rev->n ; i++){
 		aln_res_t  *p =  rev->a + i ; 
 		printf("%d\n",p->app_score);
@@ -281,4 +305,51 @@ int	unit_extend_1( char *name , aln_res_v  *rev , int sel , int l_seed , const o
 	free(info->kpv);
 	free(info);
 	return 0 ;
+}
+/*	check  mismatch */
+int	find_mismatch( char *name , int l_seed , int sel)
+{
+	DNAA_info *info = gain_test_name_info(name,l_seed,sel);
+	if(!info)  return 0 ;
+	int  ret =  info->n_mis ;
+	free(info->kpv->val);
+	free(info->kpv);
+	free(info);
+	return  ret;
+}
+/*	check   insertion */
+int	find_insertion( char *name , int l_seed , int sel)
+{
+	DNAA_info *info = gain_test_name_info(name,l_seed,sel);
+	if(!info)  return 0 ;
+	int  ret = info->n_ins;
+	free(info->kpv->val);
+	free(info->kpv);
+	free(info);
+	return  ret ;
+}
+/*	check  deletion*/
+int	find_deletion( char *name , int l_seed , int sel)
+{
+	DNAA_info *info = gain_test_name_info(name,l_seed,sel);
+	if(!info)  return 0 ;
+	int ret = info->n_del ;
+	free(info->kpv->val);
+	free(info->kpv);
+	free(info);
+	return  ret ;
+}
+void	print_res_info(aln_res_t *at)
+{
+	printf("ref_b:%ld\tref_e:%ld\tquery_b:%d\tquery_e:%d\n",at->ref_b,at->ref_e,at->query_b,at->query_e);
+
+
+}
+void   print_resv_info(aln_res_v *av)
+{
+	int  i ;
+	for( i = 0 ; i <  av->n  ; i++){
+		aln_res_t *res =  av->a + i ;
+		print_res_info(res);
+	}
 }

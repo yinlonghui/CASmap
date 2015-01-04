@@ -40,6 +40,9 @@ static void  gen_mat(int a , int b, int8_t mat[25])
 			mat[i*5+j] = (i == 4 ||j == 4) ? -1 :(i!=j ?-b :a);
 
 }
+/*
+ *   Initialize  Options Structure
+ */
 static inline opt_t *init_opt()
 {
 	opt_t *opt =  calloc(1,sizeof(opt_t));
@@ -52,7 +55,7 @@ static inline opt_t *init_opt()
 	opt->o_del = opt->o_ins = 6 ;
 	opt->e_del = opt->e_ins = 1 ;
 	gen_mat(opt->a,opt->b,opt->mat);
-	opt->w = 100 ;
+	opt->w = 100;
 	return opt;
 }
 
@@ -156,9 +159,11 @@ FAILURE_EXIT:
 	return  usage();
 
 ALN_FAILURE_EXIT:
+
 	seqdb_close(opt->fs->seqdb);
 	if(opt->flag&F_PE) seqdb_close(opt->fs[1].seqdb);
 	free(opt->fs);
+	
 	bwa_idx_destroy(opt->fr->idx);
 	free(opt->fr);
 	free(opt);

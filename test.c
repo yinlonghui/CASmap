@@ -17,10 +17,11 @@ void  print_av_info(aln_chain_v av , const opt_t *opt){
 		aln_chain_t *p  = av.a + j ;
 		for( k = 0 ; k < p->n ; k++ ){
 			aln_seed_t *sp =   p->a + k ;
-			int is_rev;
-			bwtint_t pos = bns_depos(opt->fr->idx->bns, sp->ref_b > opt->fr->idx->bns->l_pac ? sp->ref_e - 1 : sp->ref_b, &is_rev);  
-			printf("%ld\t%ld\t",pos,pos+sp->ref_e-sp->ref_b);
+			//int is_rev;
+			//bwtint_t pos = bns_depos(opt->fr->idx->bns, sp->ref_b > opt->fr->idx->bns->l_pac ? sp->ref_e - 1 : sp->ref_b, &is_rev);  
+			printf("%ld\t%ld\t%d\t%d\t",sp->ref_b,sp->ref_e,sp->query_b , sp->query_e);
 		}
+		printf("\n");
 	}
 	printf("\n");
 }
@@ -81,11 +82,13 @@ int  key_cmp(const void *p1  , const void *p2)
 }
 
 typedef struct {
-	int  pos[2];  //  simulation  coordinate
+	int  pos[2];     //  simulation  coordinate
 	int  strand[2];  // simulation  strand 
-	int  n_mis ;  // simulation  number of mismatch
-	int  n_ins ;  // simulation  number of insertion
-	int  n_del ;  // simulation  number of deletion 
+	int  n_mis ;   // simulation  number of mismatch
+	int  n_gap ;   // simulation  number of gap 
+	int  n_ins ;   // simulation  number of insertion ext
+	int  n_del ;   // simulation  number of deletion  ext
+	int  n_match ; // simulation number of match
 	key_pos_v  *kpv;
 } DNAA_info ;
 
@@ -105,7 +108,7 @@ DNAA_info *gain_test_name_info(char *name , int l_seed , int sel)
 
 	info = malloc(sizeof(DNAA_info));
 
-	info->n_mis = info->n_ins = info->n_del = 0 ;
+	info->n_mis = info->n_ins = info->n_del = info->n_gap =  info->n_match =  0 ;
 
 	tmp = name ;
 
@@ -178,11 +181,19 @@ DNAA_info *gain_test_name_info(char *name , int l_seed , int sel)
 					val->end =  pos + c->len ;
 					info->kpv->n++ ;
 				}
+				info->n_match += c->len ;
 				pos += c->len ;
 				break;
-			case 'U':  pos+= c->len ; info->n_mis++;  break ;
-			case 'I':  info->n_ins+= c->len ; break ; 
-			case 'D':  pos+= c->len ; info->n_del+= c->len ; break ;
+			case 'U':  pos+= c->len ; 
+				   info->n_mis++;  
+				   break ;
+			case 'I':  info->n_gap++ ;
+				   info->n_ins+= c->len ; 
+				   break ; 
+			case 'D':  pos+= c->len ; 
+				   info->n_gap++ ;
+				   info->n_del+= c->len ;
+				   break ;
 		}
 
 	}
@@ -293,13 +304,35 @@ void  unit_sv_seed(aln_seed_v *kv_seed , const opt_t *opt)
 int	unit_extend_1( char *name , aln_res_v  *rev , int sel , int l_seed , const opt_t *opt)
 {
 	DNAA_info *info = gain_test_name_info(name,l_seed,sel);
-	if(!info) return 0 ;
+	if(!info){
 
-	int  i  ;
-	for( i = 0 ; i < rev->n ; i++){
-		aln_res_t  *p =  rev->a + i ; 
-		printf("%d\n",p->app_score);
+		if(rev->n) printf("MAP\n");
+		return 0 ;
 	}
+	int  i ;
+	if(rev->n) printf("MAP\t");
+	printf("%d\n",info->pos[sel]);
+	for( i = 0 ; i < rev->n ; i++){
+		aln_res_t  *sp = rev->a + i ;
+		int  is_rev ;
+		bwtint_t pos = bns_depos(opt->fr->idx->bns, sp->ref_b > opt->fr->idx->bns->l_pac ? sp->ref_e - 1 : sp->ref_b, &is_rev);  
+		if(abs(info->pos[sel] - pos) < 50 ){
+			if(i==0) {
+				printf("FIRST");
+				break ;
+			}else {
+				int score  =   opt->a*info->n_match - opt->o_ins*info->n_gap - opt->e_ins*info->n_ins - opt->e_del*info->n_del - opt->b*info->n_mis ;
+				printf("XA\t");
+				printf("%d\t%d",rev->a[0].app_score , score);
+				if(rev->a[0].app_score <  score)  printf("%s",name);
+				break ;
+			}
+
+		//	print_res_info(sp);
+		//	printf("score:%d\t%ld\t%ld\t%d\t%d\n",sp->app_score ,pos,pos+sp->ref_e - sp->ref_b , sp->query_b , sp->query_e);
+		}
+	}
+	printf("\n");
 
 	free(info->kpv->val);
 	free(info->kpv);
@@ -341,7 +374,7 @@ int	find_deletion( char *name , int l_seed , int sel)
 }
 void	print_res_info(aln_res_t *at)
 {
-	printf("ref_b:%ld\tref_e:%ld\tquery_b:%d\tquery_e:%d\n",at->ref_b,at->ref_e,at->query_b,at->query_e);
+	printf("score:%d\tref_b:%ld\tref_e:%ld\tquery_b:%d\tquery_e:%d\n",at->app_score,at->ref_b,at->ref_e,at->query_b,at->query_e);
 
 
 }

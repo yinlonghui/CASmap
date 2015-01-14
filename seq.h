@@ -12,6 +12,7 @@ typedef struct {
 	char	*name;
 	char	*add;
 	char	*qual;
+	char    *sam ;
 	size_t	alen;
 	size_t	qlen;
 	size_t	nlen;

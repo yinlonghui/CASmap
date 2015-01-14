@@ -1,16 +1,24 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
 #include <assert.h>
 #include <ctype.h>
 
+#include "time.h"
 #include "ksw.h"
+#include "kseq.h"
 #include "bwa.h"
 #include "bwt.h"
+#include "kstring.h"
 #include "aln.h"
 #include "kvec.h"
 #include "ksort.h"
 #include "utils.h"
 
+/*  */
+int	g_log_n[256];
+/*global  for test*/
+int  ret =  1 ; 
 
 /* calculate  maximun gap length */
 
@@ -21,6 +29,43 @@ static inline int cal_max_gap (const opt_t *opt , int len)
 	int  l =  l_del  >  l_ins  ?  l_del : l_ins ;
 	l = l > 1 ?  l : 1 ;
 	return  l < opt->w << 1 ? l : opt->w << 1;
+}
+
+static inline int cal_max_gap_score (const opt_t *opt , int  score , int len)
+{
+	int  l_del = (int)((double)(len*opt->a + score - opt->o_del)/opt->e_del +1.);
+	int  l_ins = (int)((double)(len*opt->a + score - opt->o_ins)/opt->e_ins +1.);
+	int  l =  l_del  >  l_ins  ?  l_del : l_ins ;
+	l = l > 1 ?  l : 1 ;
+	return  l < opt->w << 1 ? l : opt->w << 1;
+}
+
+/*
+ * basic  hit->SAM converison
+ */
+static inline int infer_bw(int l1 ,int l2 ,int score , int a , int q ,int r)
+{
+	int w ;
+	if(l1 == l2  && l1 * a -score < (q+r-a)<<1) return 0 ; //   to get equal alignment length , we need at least two gaps .
+	w = ((double)((l1 < l2 ? l1 : l2)*a -score -q)/r+2.);
+	if(w < abs(l1-l2)) w = abs(l1 - l2);
+	return w ;
+}
+
+/*
+ *  assume that  x  is maximun mismatch and l  is  sequence length 
+ *  (l - x)*a - x*b = 0 
+ *   x =  a*l/(a+b).
+ *
+ *   (Ml + l - x ) * a  - x*b = 0 
+ *   x =  (ML + l)a/(a+b)
+ */
+
+static inline int cal_max_mismatch( const opt_t *opt , int score, int len)
+{
+	int  l  =  (int)((double)(len*opt->a+score)/(opt->b + opt->a)+ 1.);
+
+	return  l ; 
 }
 
 /*  
@@ -105,6 +150,7 @@ void   cm_mergechain(aln_chain_v *av ,  aln_seed_v  *kv_seed)
 			if( s_aln->query_b - p_aln->query_b == s_aln->ref_b - p_aln->ref_b){
 				p_aln->ref_e =  s_aln->ref_e ;
 				p_aln->query_e = s_aln->query_e ;
+				p_aln->len =  p_aln->query_e - p_aln->query_b ;
 				break;
 			}
 		}
@@ -187,6 +233,7 @@ void  mark_chain_se(aln_chain_v *av ,const opt_t *opt)
 			at->flags =  ALLOW_EXTEND ;
 		else	
 			at->flags  = 0 ;
+
 	}
 }
 
@@ -200,6 +247,7 @@ void  mark_chain_se(aln_chain_v *av ,const opt_t *opt)
 /*
  *  @abstract:  if direct <= 0  , d is res's left side ... otherwise d is a's right side
  */
+
 inline int  short_result( aln_seed_t *d ,  int direct , aln_res_t *res , const opt_t *opt )
 {
 	int ref_dist =  0 ;
@@ -217,21 +265,19 @@ inline int  short_result( aln_seed_t *d ,  int direct , aln_res_t *res , const o
 		read_dist = res->query_b - d->query_e ;
 	}
 
+	/**/
+
 	if(ref_dist == read_dist){
-		n_mis = d->query_b - res->query_e ;
+		n_mis = ref_dist;
 		res->n_mis += n_mis  ;
 		res->app_score += (opt->a*d->len - opt->b*n_mis);
 		//res->
 	}else if ( abs(ref_dist) <  abs(read_dist)) {
-		n_mis = ref_dist ? ref_dist : 0 ;
-		res->n_mis += n_mis ;
 		res->n_gap++ ;
 		n_ext = (ref_dist < 0 ?  read_dist  -  ref_dist : read_dist) ;
 		res->n_ext += n_ext ;
 		res->app_score += (opt->a*d->len -  opt->b*n_mis - opt->o_del - opt->e_del*n_ext );
 	}else {
-		n_mis = read_dist ? read_dist : 0 ;
-		res->n_mis +=  n_mis;
 		res->n_gap++;
 		n_ext = read_dist< 0 ?   ref_dist - read_dist: ref_dist;
 		res->n_ext += n_ext ;
@@ -304,10 +350,11 @@ int  linear_aln( const opt_t *opt ,  const seq_t *seq , aln_seed_t *d , aln_res_
 			printf("\n");
 			printf("%d\n",n_mis);
 
-
 		}
-		if((double)n_mis/read_dist > 0.5) {
-			printf("exit\n");
+		int  high_score =  opt->a*d->len > res->app_score ? opt->a*d->len : res->app_score ;
+		int  allow_nis = cal_max_mismatch( opt, high_score ,read_dist);
+		if((double)n_mis/read_dist > 0.5 && allow_nis < n_mis) {
+			//printf("%d\t%d\t%d\texit\n",allow_nis,n_mis,read_dist);
 			goto EXIT ;
 		}else {
 			res->n_mis += n_mis ;
@@ -346,6 +393,8 @@ int  linear_aln( const opt_t *opt ,  const seq_t *seq , aln_seed_t *d , aln_res_
 			}
 			printf("\n");
 		}
+		//printf("%s\n",seq->name);
+		//fflush(stdout);
 		r =  ksw_align2(read_dist , bseq + query_b , ref_dist , rseq , 5 ,opt->mat , opt->o_del ,opt->e_del ,opt->o_ins ,opt->e_ins , KSW_XSTART , 0);
 		if(r.score >  35){
 			d->flags &= DISALLOW_EXTEND ;
@@ -357,7 +406,7 @@ int  linear_aln( const opt_t *opt ,  const seq_t *seq , aln_seed_t *d , aln_res_
 				res->query_b = d->query_b ;
 				res->ref_b =  d->ref_b ;
 			}
-			res->app_score += (r.score - 50*opt->a) ; 
+			res->app_score += (r.score - 50*opt->a + d->len*opt->a); 
 		}
 	}
 EXIT:
@@ -380,19 +429,22 @@ inline int  extend_seed( const opt_t *opt , const  seq_t *seq ,  aln_res_t *res 
 	int	max_off, aw = opt->w ;
 	int	score =  -1  ;
 	uint8_t  *qs , *rs ;
+	int	offset = 0 ;
 	if(direct){
 		if(res->query_e == seq->len) 
 			return  0 ;
 
+		offset = cal_max_gap_score(opt,res->app_score,seq->len - res->query_e);
 		query_b = res->query_e;
 		query_e = seq->len ;
 		ref_b  =  res->ref_e ;
-		ref_e  =  res->ref_e +  seq->len - res->query_e  >  opt->fr->idx->bns->l_pac << 1 ?  opt->fr->idx->bns->l_pac << 1 : res->ref_e + seq->len  - res->query_e ;
+		ref_e  =  res->ref_e +  seq->len - res->query_e + offset  >  opt->fr->idx->bns->l_pac << 1 ?  opt->fr->idx->bns->l_pac << 1 : res->ref_e + seq->len  - res->query_e  + offset;
 	}else {
 	//  left side ..
 		if(res->query_b == 0 )
 			return 0 ;
-		ref_b = res->ref_b - res->query_b  > 0  ? res->ref_b - res->query_b  :   0  ;
+		offset = cal_max_gap_score(opt,res->app_score,res->query_b);
+		ref_b = res->ref_b - res->query_b  - offset  > 0  ? res->ref_b - res->query_b - offset  :   0  ;
 		ref_e =  res->ref_b ;
 		query_b = 0 ;
 		query_e = res->query_b ;
@@ -451,26 +503,29 @@ inline int  extend_seed( const opt_t *opt , const  seq_t *seq ,  aln_res_t *res 
 		if( score == pre  || max_off < (aw>>1)+(aw>>2)) break ;
 
 	}
-	printf("qle:%d\ttle:%d\tgtle:%d\tgscore:%dscore:%d\n",qle,tle,gtle,gscore,score);
+	if(opt->verbose == 4 && ret ) 	printf("qle:%d\ttle:%d\tgtle:%d\tgscore:%dscore:%d\n",qle,tle,gtle,gscore,score);
 	if(direct){
 		if(gscore <= 0  ||  gscore <= score - opt->pen_clip5){
 			res->query_e +=  qle ;
 			res->ref_e +=  tle ;
+			res->app_score = score ;
 		}else {
 			res->query_e = seq->len;
 			res->ref_e +=  gtle ;
+			res->app_score = gscore;
 		}
 
 	}else {
 		if(gscore <= 0  ||  gscore <= score - opt->pen_clip5){
 			res->query_b -= qle ;
 			res->ref_b -= tle ;
+			res->app_score = score ;
 		}else {
 			res->query_b = 0 ;
 			res->ref_b -= gtle ;
+			res->app_score = gscore;
 		}
 	}
-	res->app_score = score ;
 
 	if(opt->verbose == 7 ){
 		print_res_info(res);
@@ -499,8 +554,6 @@ void cm_chain_extend(aln_chain_t *at, aln_res_v *rev ,const seq_t *seq , const o
 		p->flags  =  ALLOW_EXTEND ;
 	}
 
-	
-
 	for( i = 0 ; i < at->n ; i++){
 		aln_seed_t *p = at->a + i ;
 
@@ -517,7 +570,7 @@ void cm_chain_extend(aln_chain_t *at, aln_res_v *rev ,const seq_t *seq , const o
 			//  left 
 			for(  k = i-1   ;  k >= 0 ;  k--){
 				aln_seed_t *res_left  = at->a + k ;
-				if( res.ref_b + OVERLAP_REGION_SIZE <  res_left->ref_e  ||   res.query_b + OVERLAP_REGION_SIZE < res_left->query_b ){
+				if( res.ref_b + OVERLAP_REGION_SIZE <  res_left->ref_e  ||   res.query_b + OVERLAP_REGION_SIZE < res_left->query_e ){
 				/* 
 				 *  	When seeds have overlap region  , this seed can't be merge. 
 				 *  	But we can't ignore these region  :  this reads maybe structure various
@@ -599,40 +652,37 @@ void  cm_disallow_extend(aln_chain_t *at , aln_res_v *rev , const opt_t *opt)
 }
 
 /*
- *	print sam stdout
- */
-
-int  print_sam()
-{
-	return 0 ;
-}
-
-/*
  * 	chain ====> alignment result
  */
 
+#define rev_cmp_func(a,b) ( (a).app_score > (b).app_score)
+KSORT_INIT(cm_rev_sort,aln_res_t,rev_cmp_func)
+
+
 void  cm_chain2aln(aln_chain_v *av , aln_res_v *rev , const seq_t *seq ,const opt_t *opt ){
 	int  i ;
-	int  ret =  1 ; 
-	//find_mismatch(seq->name,opt->l_seed,0);
+#if 0
+	ret = find_insertion(seq->name,opt->l_seed,0) || find_deletion(seq->name,opt->l_seed,0);
 	if(ret && opt->verbose == 4){
-		printf("%s\n",seq->name);
+		printf("%s",seq->name);
 	}
+	print_av_info(*av,opt);
+#endif
 	for( i = 0 ; i < av->n + 1 ; i++){
 		aln_chain_t *at = av->a + i  ;
-		if(opt->verbose == 4 && ret){
-			print_at_info(at);
-		}
 		if(is_extend(*at)) {
 			cm_chain_extend(at,rev,seq,opt);
 		}else	{
 			cm_disallow_extend(at,rev,opt) ;
 		}
 	}
+
+	ks_introsort(cm_rev_sort,rev->n,rev->a);
+	
 	if(opt->verbose == 4 && ret){
+		unit_extend_1(seq->name,rev,0,opt->l_seed,opt);
 		print_resv_info(rev);
 	}
-
 }
 
 int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
@@ -658,14 +708,6 @@ int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
  */
 		cm_chain2aln(av,&rev[i],p,opt);
 
-
-		if(opt->verbose == 5)  //  extend test 
-			;  
-
-		
-/*
- * 	step4: Fmeas filter ...
- */
 
 		aln_chain_v_free(*av);
 		free(av);
@@ -697,6 +739,7 @@ void  multi_seq_release(seq_t *seq){
 
 	if(seq){
 		free(seq->seq);
+		free(seq->sam);
 		free(seq->name);
 		free(seq->add);
 		free(seq->qual);
@@ -718,12 +761,337 @@ void  multi_seq_free(mseq_t *s, int sel)
 }
 
 /*
- * 	this section select good alignment , then  output.
+ *	translate alignment info to SAM's info 
+ */
+aln_info_t res2alninfo(const opt_t *opt , aln_res_t *res , const seq_t  *seq )
+{
+	aln_info_t a ;
+
+	memset(&a,0,sizeof(aln_info_t));
+
+	int  i , qb , qe , tmp , w2  , is_rev , NM , score , l_MD , last_sc = -(1<<30);
+
+	int64_t  pos , rb , re ;
+	uint8_t *query ;
+
+	/*  rotate query */
+	
+	pos =  bns_depos(opt->fr->idx->bns , res->ref_b >  opt->fr->idx->bns->l_pac ? res->ref_e - 1 : res->ref_b , &is_rev );
+	is_rev =  1 - is_rev ;
+	
+	if(res->ref_b >  opt->fr->idx->bns->l_pac){
+
+		qb =  seq->len - res->query_e , qe = seq->len - res->query_b ; 
+	}
+	else {
+		qb = res->query_b  , qe = res->query_e ;
+	}
+	rb =  res->ref_b ,  re = res->ref_e ;
+
+	if(opt->verbose==9){
+		printf("%d\t%d ,%d,%d\n",res->query_b,res->query_e,is_rev,res->app_score);
+	}
+	char2nt4(&query,seq->len,seq->seq,0);
+	if(res->ref_e < opt->fr->idx->bns->l_pac){
+		//  reads  reverse
+
+		seq_reverse(seq->len,query);
+
+	}
+	extern  int  print_cigar  ;
+
+
+	tmp = infer_bw( qe - qb , re - rb , res->app_score , opt->a , opt->o_del , opt->e_del);
+	w2  = infer_bw( qe - qb , re - rb , res->app_score , opt->a , opt->o_ins , opt->e_ins);
+	w2  =  w2 >  tmp ? w2 : tmp ;
+	
+	if( opt->verbose == 9){
+		print_cigar =  1 ;
+	}
+
+	i = 0 ;
+	do{
+		free(a.cigar);
+		w2  =  w2 <  opt->w << 2 ? w2 :opt->w << 2 ;
+		a.cigar = bwa_gen_cigar2(opt->mat,opt->o_del,opt->e_del,w2, opt->fr->idx->bns->l_pac , opt->fr->idx->pac , qe-qb , (uint8_t *)&query[qb],rb ,re, &score , &a.n_cigar , &NM);
+		if( score == last_sc  || w2  << opt->w << 2) break ;
+		if( opt->verbose == 9){
+			;
+		}
+		last_sc = score ;
+
+	}while( i++<3 && score < res->app_score - opt->a);
+
+
+	l_MD  = strlen((char *)(a.cigar + a.n_cigar)) + 1 ;
+	a.NM = NM ;
+	a.is_rev =  is_rev ;
+
+	if( a.n_cigar > 0 ){
+		if((a.cigar[0]&0xf)==2 ){
+			pos += a.cigar[0]>>4;
+			--a.n_cigar;
+			memmove(a.cigar , a.cigar + 1 , a.n_cigar *4 + l_MD);
+		}else if( (a.cigar[a.n_cigar-1]&0xf) == 2){
+			--a.n_cigar ;
+			memmove(a.cigar + a.n_cigar , a.cigar + a.n_cigar + 1 , l_MD);
+		}
+	}
+
+	if(qb != 0  || qe != seq->len ){
+		int clip5 , clip3 ;
+		clip5 =  is_rev  ? seq->len - qe : qb ; 
+		clip3 =  is_rev  ? qb  : seq->len - qe ; 
+		a.cigar =  realloc(a.cigar , 4*(a.n_cigar+2)+l_MD);
+		if(clip5){
+			memmove(a.cigar + 1 , a.cigar , a.n_cigar * 4 + l_MD);
+			a.cigar[0] =  clip5 << 4 |3 ;
+			++a.n_cigar ;
+		}
+		if(clip3){
+			memmove(a.cigar + a.n_cigar + 1 , a.cigar + a.n_cigar  , l_MD);
+			a.cigar[a.n_cigar++] = clip3 << 4| 3;
+		}
+	}
+
+	a.rid = bns_pos2rid(opt->fr->idx->bns ,pos );
+	a.pos = pos - opt->fr->idx->bns->anns[a.rid].offset;
+	a.score =  res->app_score ;
+
+	free(query);
+	return  a;
+}
+
+/*
+ *	print sam stdout
  */
 
-int	cm_se( const opt_t *opt , aln_res_v *rev)
+int    aln2sam(const opt_t *opt , aln_info_t *a ,  int n ,aln_info_t *m  , kstring_t *t , seq_t *seq )
 {
-	print_sam();
+	//
+	int  i ;
+	a->flag |=  a->is_rev ? 0x10 : 0 ;
+
+	ks_resize(t,t->l + seq->nlen + seq->len + seq->qlen + 20);
+
+	//  QNAME
+	if(seq->name[0]){
+		seq->name++ ;
+		kputsn(seq->name , seq->nlen - 1 , t);
+		seq->name-- ;
+	}else {
+		kputsn(seq->name , seq->nlen + 1 , t);
+	}
+
+	//  QFLAG
+	kputc('\t',t);
+	kputw(a->flag , t);
+	kputc('\t',t);
+
+	if(a->rid >= 0 ){
+		kputs(opt->fr->idx->bns->anns[a->rid].name,t);  //   RNAME
+		kputc('\t',t);
+		kputl(a->pos + 1,t);  // POS  
+		kputc('\t',t);
+		kputw(a->mapq , t);   // MAPQ
+		kputc('\t',t);
+		if( a->n_cigar){
+			for( i = 0 ; i < a->n_cigar ; i++){
+				int c = a->cigar[i]&0xf ;
+				if(c==4)  
+					c=3 ;
+				kputw(a->cigar[i]>>4,t);
+				kputc("MIDS"[c],t);
+			}
+
+		}else  kputc('*',t);
+
+	}else {
+		kputsn("*\t0\t0\t*",7,t);
+
+	}
+	kputc('\t',t);
+
+	if(m &&  m->rid >= 0 ){
+		;
+	}else {
+		kputsn("*\t0\t0",5,t);
+
+	}
+	kputc('\t',t);
+
+	if(!a->is_rev){
+		ks_resize(t , t->l + seq->len );
+		for( i = 0 ; i < seq->len ; i++)
+			t->s[t->l++] =  seq->seq[i] ;
+		kputc('\t',t);
+		ks_resize(t , t->l + seq->qlen) ;
+		for( i = 0 ; i < seq->qlen ; i++)
+			t->s[t->l++] =  seq->qual[i];
+		t->s[t->l] = 0 ;
+	}else {
+		uint8_t  *bseq ;
+		ks_resize(t , t->l + seq->len );
+		char2nt4(&bseq,seq->len,seq->seq,0);
+
+		for( i = seq->len - 1 ; i >= 0 ; --i)
+			t->s[t->l++] =  "TGCAN"[bseq[i]] ;
+		kputc('\t',t);
+		ks_resize(t , t->l + seq->qlen);
+		for( i = seq->len - 1 ; i >= 0 ; --i)
+			t->s[t->l++] = seq->qual[i];
+		t->s[t->l] = 0 ;
+		free(bseq);
+	}
+	if(a->n_cigar){
+		kputsn("\tNM:i:",6,t); 
+		kputw(a->NM,t);
+		kputsn("\tMD:Z:",6,t); 
+		kputs((char *)(a->cigar + a->n_cigar),t);
+	}
+	if(a->score) {
+		kputsn("\tAS:i:",6,t);
+		kputw(a->score,t);
+	}
+	/*
+	 * XA:POS:CIGAR
+	 */
+	if(n>1){
+		kputsn("\tXA:Z:",6,t);
+		for( i = 1 ;  i < n ; i++){
+			aln_info_t  *p = a  +  i  ;
+			
+			kputs(opt->fr->idx->bns->anns[p->rid].name,t);
+			kputc(',',t);
+			kputc("+-"[p->is_rev],t);
+			kputl(p->pos + 1 , t);
+			kputc(',',t);
+			int k = 0  ;
+			for( k = 0 ; k <  p->n_cigar ; k++){
+				kputw(p->cigar[k]>>4,t);
+				kputc("MIDSHN"[p->cigar[k]&0x0f],t);
+			}
+			kputc(',',t);
+			kputw(p->NM,t);
+			kputc(';',t);
+		}
+
+	}
+
+
+
+	kputc('\n',t);
+
+	return 0 ;
+}
+
+
+int	print_sam()
+{
+	return 0 ;
+}
+
+
+int    MapQ(const aln_res_v  *rev ,  const opt_t *opt)
+{
+	int best_score  , i  ;
+	int c0 , c1 ;
+	if(rev->n == 0) return 0;
+	best_score  =  rev->a[0].app_score ;
+
+	for( i = 1 ; i < rev->n ; i++){
+		aln_res_t  *res =  rev->a + i ;
+		if(res->app_score != best_score) break ;
+		if(res->app_score  <  opt->threshold) break ;
+	}
+	c0 =  i ;
+	for(  ;  i < rev->n ; i++){
+
+		aln_res_t  *res =  rev->a + i ;
+		if(res->app_score  <  opt->threshold) break ;
+	}
+	c1 =  rev->n -  i  - c0 ;
+	int  n ;
+	if(c0 >  1) return 0 ;
+	if(c1 == 0) return 37 ;
+	n =  c1  >=255 ? 255 : c1 ;
+	return (23 < g_log_n[n])?0:23-g_log_n[n];
+}
+
+void init_g_log_n()
+{
+	int  i ;
+	for( i =  1 ; i < 256 ; i++)  g_log_n[i] =  (int)(4.343 * log(i) + 0.5);
+}
+
+/*
+ * 	this section select good alignment , then  output.
+ */
+int	se_core(const opt_t *opt , seq_t *seq , const aln_res_v *rev)
+{
+
+	int  i , mq;
+	kvec_t(aln_info_t) aa = { 0 , 0 , 0};
+	mq =  MapQ(rev,opt) ;
+	kstring_t  str ;
+	str.l =  str.m = 0  ;
+	str.s = NULL ;
+
+	for( i = 0 ; i <  rev->n ; i++){
+		aln_res_t *res =  rev->a + i ;	
+		
+		if( res->app_score  <  opt->threshold)  break ;
+		
+		aln_info_t  *p = kv_pushp(aln_info_t,aa);
+
+		p->flag = 0 ;
+
+		p->n_cigar = 0 ;
+		*p = res2alninfo(opt , res , seq);
+		/* MapQ  */
+		p->mapq = mq ;
+
+	}
+
+	if(!aa.n){
+		aln_info_t  *p = kv_pushp(aln_info_t,aa);
+		p->rid =  -1 ; p->pos = -1 ; p->flag =  0x04 ;
+		p->cigar = NULL ;
+		p->n_cigar = 0 ;
+		p->score = 0 ;
+		p->is_rev = 0 ;
+		aln2sam(opt , p , aa.n , 0 , &str , seq);
+	}else {
+		aln2sam(opt , aa.a , aa.n ,0 , &str , seq);
+	}
+
+	seq->sam =  str.s ;
+
+	for( i = 0 ;  i < aa.n ; i++)
+		if(aa.a[i].cigar) 
+			free(aa.a[i].cigar);
+	free(aa.a);
+	
+
+	return 0 ;
+}
+
+int	cm_se( const opt_t *opt , const mseq_t *mseq , aln_res_v *rev)
+{
+
+/*
+ * 	pick  score the highest alignment output ...
+ */
+	int  i  ;
+
+	for( i = 0 ; i  <  mseq->n_seq; i++){
+		seq_t  *seq = mseq->seq + i ;
+		aln_res_v  *q = rev  +  i ;
+
+		se_core(opt ,seq , q);
+		
+		if(seq->sam) printf("%s",seq->sam);
+	}
 
 	return 0 ;
 }
@@ -756,7 +1124,13 @@ int  aln_core(const opt_t *opt)
 		
 	}
 
+	double t_aln_start  ,  t_aln_end ;
+	
+
+	init_g_log_n();
+
 	do{
+		t_aln_start  = get_run_time();
 
 		if(opt->flag & F_PE){
 			multi_seq_get(opt->fs[0].seqdb,&mseq[0]);
@@ -784,7 +1158,10 @@ int  aln_core(const opt_t *opt)
 		if(opt->flag & F_PE)  
 			cm_pe(opt,rev);
 		else	
-			cm_se(opt,rev[0]);
+			cm_se(opt,&mseq[0],rev[0]);
+		/*
+		 * clear the result structure
+		 */
 		if(opt->flag & F_PE){
 			for( i = 0 ; i < opt->n_need ;i++){
 				rev[0][i].n = rev[1][i].n = 0 ;
@@ -795,10 +1172,10 @@ int  aln_core(const opt_t *opt)
 			}
 
 		}
-	
+		t_aln_end = get_run_time();
 		
 		multi_seq_free(mseq, 1 + (opt->flag&F_PE));
-		fprintf(stderr,"%ld reads have been processed\n",mseq[0].total_num);
+		fprintf(stderr,"%ld reads have been processed  %.2f sec \n",mseq[0].total_num ,t_aln_end - t_aln_start);
 
 	}while(1);
 
@@ -806,13 +1183,14 @@ int  aln_core(const opt_t *opt)
 		kv_destroy(rev[0][i]);
 	}
 
+	free(rev[0]);
+
 	if((opt->flag&F_PE)){
 		for( i = 0 ; i < opt->n_need ; i++)
 			kv_destroy(rev[1][i]);
+		free(rev[1]);
 	}
 
-	free(rev[0]);
-	free(rev[1]);
 	free(mseq);
 	return EXIT_SUCCESS;
 }

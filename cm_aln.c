@@ -13,7 +13,6 @@ static int usage(){
 	fprintf(stderr,"\n");
 	fprintf(stderr,"usgae: cm_aln  <in.fasta>  <in.fastq> [in2.fastq]\n");
 	fprintf(stderr,"Options: -f FILE  file to wirte output to instead of stdout \n");
-//	fprintf(stderr,"         -n  INT  number of mismatch (seeding) \n");
 	fprintf(stderr,"         -k  INT  length of seed(k-mer)\n");
 
 	fprintf(stderr,"         -A  INT  score for a sequence match\n");
@@ -22,11 +21,10 @@ static int usage(){
 	fprintf(stderr,"         -i  INT  insertion gap extend penalty \n");
 	fprintf(stderr,"         -D  INT  deletion gap open penalty \n"); 
 	fprintf(stderr,"         -d  INT  deletion gap extend penalty \n");
-	fprintf(stderr,"         -w  INT   band width for banded alignment \n");
+	fprintf(stderr,"         -w  INT  band width for banded alignment \n");
+	fprintf(stderr,"	 -T  INT  threshold score for outputing sam\n");
 
 	fprintf(stderr,"         -v  INT  output debug info. \n ");
-	fprintf(stderr,"                  1、 test only one read for SE alignment.\n");
-	fprintf(stderr,"                      print all stack info to trace.\n");
 	fprintf(stderr,"\n");
 	return  EXIT_FAILURE ;
 }
@@ -56,8 +54,19 @@ static inline opt_t *init_opt()
 	opt->e_del = opt->e_ins = 1 ;
 	gen_mat(opt->a,opt->b,opt->mat);
 	opt->w = 100;
+	opt->threshold = 30 ;
 	return opt;
 }
+
+void  cm_print_sam_hdr(const bntseq_t *bns)
+{
+	int  i ;
+	for( i = 0 ; i < bns->n_seqs ; i++){
+		printf("@SQ\tSN:%s\tLN:%d\n",bns->anns[i].name,bns->anns[i].len);
+	}
+}
+
+double t_start,t_end;
 
 int	main(int argc , char *argv[])
 {
@@ -66,7 +75,7 @@ int	main(int argc , char *argv[])
  *    parse the command.. 
  */
 	int c =  0 , rc = 0 ;
-	while( ( c = getopt(argc , argv ,"f:v:z:k:A:B:I:i:D:d:w:")) != -1){
+	while( ( c = getopt(argc , argv ,"f:v:z:k:A:B:I:T:i:D:d:w:")) != -1){
 		switch(c){
 			/* All state... */
 			case 'f':  freopen(optarg,"w",stdout);  break;   
@@ -81,36 +90,19 @@ int	main(int argc , char *argv[])
 			case 'D':  opt->o_del =  atoi(optarg); break;
 			case 'd':  opt->e_del =  atoi(optarg); break;
 			case 'w':  opt->w =  atoi(optarg); break;
+
+			case 'T':  opt->threshold =  atoi(optarg) ; break ;
+
+			default:   goto  FAILURE_EXIT;	
+				   
 		
 		}
 	}
-//  test  input  paramter 
-#if  0
-	fprintf(stderr,"match score  =%d\n", opt->a);
-	fprintf(stderr,"mismatch score  =%d\n", opt->b);
-	fprintf(stderr,"band  alignment =%d\n",opt->w);
-	fprintf(stderr,"gap open   insert  penalty =%d\n", opt->o_ins);
-	fprintf(stderr,"gap open   delete  penalty =%d\n", opt->o_del);
-	fprintf(stderr,"gap extend insert  penalty =%d\n", opt->e_ins);
-	fprintf(stderr,"gap extend insert  penalty =%d\n", opt->e_del);
 
-#endif
-
-// score scheme 
-#if 0
-	int  i , j , k = 0 ;
-	for( i = 0 ; i < 5 ; i++){
-		for( j = 0 ; j < 5 ; j++)
-			fprintf(stderr,"%d\t",opt->mat[k++]);
-		fprintf(stderr,"\n");
-	}
-
-#endif
 	if(optind + 3 == argc) opt->flag = F_PE  ;
 	
 
 	if(optind + 4 > argc && argc > optind + 1){
-		double t_start,t_end;
 		init_run_time();
 		
 		t_start = get_run_time();
@@ -125,6 +117,13 @@ int	main(int argc , char *argv[])
 
 		fprintf(stderr,"%.2f sec.\n",t_end-t_start);
 
+		cm_print_sam_hdr(opt->fr->idx->bns);
+		printf("@PG\tID:CASmap\tPN:CASmap\tVN:0.1\tCL:%s",argv[0]);
+		int  i  ;
+		for( i  = 1 ; i < argc ; i++ )
+			printf(" %s",argv[i]);
+		printf("\n");
+
 		t_start =  get_run_time();
 		
 		opt->fs = calloc(opt->flag&F_PE?2:1,sizeof(file_seq_t));
@@ -137,11 +136,12 @@ int	main(int argc , char *argv[])
 			opt->fs[1].fn = argv[optind+2];
 			opt->fs[1].seqdb =  seq_open(argv[optind+2]);
 		}
+
 		assert(2*opt->fr->idx->bns->l_pac ==  opt->fr->idx->bwt->seq_len);
 		rc = aln_core(opt);
 		if(rc == EXIT_FAILURE) goto ALN_FAILURE_EXIT ;
 		t_end = get_run_time();
-		fprintf(stderr,"Finish the alignment.. total time is  %2.f sec. \n",t_end-t_start);
+		fprintf(stderr,"Finish the alignment.. total time is  %.2f sec. \n",t_end-t_start);
 
 	}else  goto FAILURE_EXIT; 
 

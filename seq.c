@@ -138,6 +138,7 @@ int seqt_release(seq_t *seq)
 	if(seq){
 		free(seq->seq);
 		free(seq->name);
+		free(seq->sam);
 		free(seq->add);
 		free(seq->qual);
 		free(seq);

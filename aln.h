@@ -36,6 +36,8 @@ typedef struct {
 	int  l_seed ;
 	int  verbose;
 	int  flag;
+	/*  score threshold output */
+	int  threshold ;
 } opt_t ;
 
 
@@ -79,6 +81,17 @@ typedef struct{
 	int	app_score ;
 	int	sw_score  ;
 } aln_res_t ;
+
+typedef struct{
+	int64_t  pos;
+	int	rid ;
+	int	flag;
+	uint32_t  is_rev:1,mapq:8,NM:23 ;
+	int	n_cigar ;
+	uint32_t  *cigar ;
+	char	*XA ;
+	int	score ;
+} aln_info_t ;
 
 typedef struct{
 	int m,n ;

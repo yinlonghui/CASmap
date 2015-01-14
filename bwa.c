@@ -85,6 +85,105 @@ void bwa_fill_scmat(int a, int b, int8_t mat[25])
 	for (j = 0; j < 5; ++j) mat[k++] = -1;
 }
 
+int   print_cigar =  0  ;
+
+uint32_t *bwa_gen_cigar2(const int8_t mat[25], int q, int r, int w_, int64_t l_pac, const uint8_t *pac, int l_query, uint8_t *query, int64_t rb, int64_t re, int *score, int *n_cigar, int *NM)
+{
+	uint32_t *cigar = 0;
+	uint8_t tmp, *rseq;
+	int i;
+	int64_t rlen;
+	kstring_t str;
+	const char *int2base;
+
+	*n_cigar = 0; *NM = -1;
+	if (l_query <= 0 || rb >= re || (rb < l_pac && re > l_pac)) return 0; // reject if negative length or bridging the forward and reverse strand
+	rseq = bns_get_seq(l_pac, pac, rb, re, &rlen);
+	if (re - rb != rlen) goto ret_gen_cigar; // possible if out of range
+#if 1
+	if (rb >= l_pac) { // then reverse both query and rseq; this is to ensure indels to be placed at the leftmost position
+	//    reference  must reverse .	In fact , mapping forward ..  
+		int  div2 =  rlen%2  ;
+		for( i = 0 ;  i <  (rlen>>1)+ div2  ; i++){
+			tmp =  3 - rseq[i];
+			rseq[i] =  3 -  rseq[rlen-i-1];
+			rseq[rlen-i-1] = tmp ;
+		}
+	}
+	if(print_cigar){
+
+		for( i = 0 ; i < l_query ; i++){
+			printf("%c","ACGTN"[query[i]]);
+		}
+		printf("\n");
+		for( i = 0 ; i < rlen ; i++){
+			printf("%c","ACGTN"[rseq[i]]);
+		}
+		printf("\n");
+
+	}
+#endif
+	if (l_query == re - rb && w_ == 0) { // no gap; no need to do DP
+		cigar = malloc(4);
+		cigar[0] = l_query<<4 | 0;
+		*n_cigar = 1;
+		for (i = 0, *score = 0; i < l_query; ++i)
+			*score += mat[rseq[i]*5 + query[i]];
+	} else {
+		int w, max_gap, min_w;
+		//printf("[Q] "); for (i = 0; i < l_query; ++i) putchar("ACGTN"[(int)query[i]]); putchar('\n');
+		//printf("[R] "); for (i = 0; i < re - rb; ++i) putchar("ACGTN"[(int)rseq[i]]); putchar('\n');
+		// set the band-width
+		max_gap = (int)((double)(((l_query+1)>>1) * mat[0] - q) / r + 1.);
+		max_gap = max_gap > 1? max_gap : 1;
+		w = (max_gap + abs(rlen - l_query) + 1) >> 1;
+		w = w < w_? w : w_;
+		min_w = abs(rlen - l_query) + 3;
+		w = w > min_w? w : min_w;
+		// NW alignment
+		*score = ksw_global(l_query, query, rlen, rseq, 5, mat, q, r, w, n_cigar, &cigar);
+	}
+	{// compute NM and MD
+		int k, x, y, u, n_mm = 0, n_gap = 0;
+		str.l = str.m = *n_cigar * 4; str.s = (char*)cigar; // append MD to CIGAR
+		int2base = rb < l_pac? "ACGTN" : "TGCAN";
+		for (k = 0, x = y = u = 0; k < *n_cigar; ++k) {
+			int op, len;
+			cigar = (uint32_t*)str.s;
+			op  = cigar[k]&0xf, len = cigar[k]>>4;
+			if (op == 0) { // match
+				for (i = 0; i < len; ++i) {
+					if (query[x + i] != rseq[y + i]) {
+						kputw(u, &str);
+						kputc(int2base[rseq[y+i]], &str);
+						++n_mm; u = 0;
+					} else ++u;
+				}
+				x += len; y += len;
+			} else if (op == 2) { // deletion
+				if (k > 0 && k < *n_cigar - 1) { // don't do the following if D is the first or the last CIGAR
+					kputw(u, &str); kputc('^', &str);
+					for (i = 0; i < len; ++i)
+						kputc(int2base[rseq[y+i]], &str);
+					u = 0; n_gap += len;
+				}
+				y += len;
+			} else if (op == 1) x += len, n_gap += len; // insertion
+		}
+		kputw(u, &str); kputc(0, &str);
+		*NM = n_mm + n_gap;
+		cigar = (uint32_t*)str.s;
+	}
+	/*
+	if (rb >= l_pac) // reverse back query
+		for (i = 0; i < l_query>>1; ++i)
+			tmp = query[i], query[i] = query[l_query - 1 - i], query[l_query - 1 - i] = tmp;
+	*/
+
+ret_gen_cigar:
+	free(rseq);
+	return cigar;
+}
 // Generate CIGAR when the alignment end points are known
 uint32_t *bwa_gen_cigar(const int8_t mat[25], int q, int r, int w_, int64_t l_pac, const uint8_t *pac, int l_query, uint8_t *query, int64_t rb, int64_t re, int *score, int *n_cigar, int *NM)
 {

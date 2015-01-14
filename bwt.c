@@ -81,7 +81,7 @@ void bwt_cal_sa(bwt_t *bwt, int intv)
 	bwt->sa[0] = (bwtint_t)-1; // before this line, bwt->sa[0] = bwt->seq_len
 }
 
-bwtint_t bwt_sa(const bwt_t *bwt, bwtint_t k)
+bwtint_t inline bwt_sa(const bwt_t *bwt, bwtint_t k)
 {
 	bwtint_t sa = 0, mask = bwt->sa_intv - 1;
 	while (k & mask) {

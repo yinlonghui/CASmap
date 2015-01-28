@@ -8,21 +8,24 @@
 #include "time.h"
 
 
-static int usage(){
+static int usage(opt_t *opt){
 
 	fprintf(stderr,"\n");
 	fprintf(stderr,"usgae: cm_aln  <in.fasta>  <in.fastq> [in2.fastq]\n");
 	fprintf(stderr,"Options: -f FILE  file to wirte output to instead of stdout \n");
-	fprintf(stderr,"         -k  INT  length of seed(k-mer)\n");
+	fprintf(stderr,"         -k  INT  length of seed(k-mer)			[default:%d]\n",opt->l_seed);
 
-	fprintf(stderr,"         -A  INT  score for a sequence match\n");
-	fprintf(stderr,"         -B  INT  penalty for a mismatch \n");
-	fprintf(stderr,"         -I  INT  insertion gap open penalty \n");
-	fprintf(stderr,"         -i  INT  insertion gap extend penalty \n");
-	fprintf(stderr,"         -D  INT  deletion gap open penalty \n"); 
-	fprintf(stderr,"         -d  INT  deletion gap extend penalty \n");
-	fprintf(stderr,"         -w  INT  band width for banded alignment \n");
-	fprintf(stderr,"	 -T  INT  threshold score for outputing sam\n");
+	fprintf(stderr,"         -A  INT  score for a sequence match		[default:%d]\n",opt->a);
+	fprintf(stderr,"         -B  INT  penalty for a mismatch		[default:%d]\n",opt->b);
+	fprintf(stderr,"         -I  INT  insertion gap open penalty		[default:%d]\n",opt->o_ins);
+	fprintf(stderr,"         -i  INT  insertion gap extend penalty		[default:%d]\n",opt->e_ins);
+	fprintf(stderr,"         -D  INT  deletion gap open penalty		[default:%d]\n",opt->o_del); 
+	fprintf(stderr,"         -d  INT  deletion gap extend penalty		[default:%d]\n",opt->e_del);
+	fprintf(stderr,"	 -e  INT  minimun extend length			[default:%d]\n",opt->min_extend_len);
+
+	fprintf(stderr,"         -w  INT  band width for banded alignment	[default:%d]\n", opt->w);
+	fprintf(stderr,"	 -T  INT  threshold score for outputing sam	[default:%d]\n" ,opt->threshold);
+	fprintf(stderr,"	 -t  INT  number of threads\n");
 
 	fprintf(stderr,"         -v  INT  output debug info. \n ");
 	fprintf(stderr,"\n");
@@ -35,7 +38,7 @@ static void  gen_mat(int a , int b, int8_t mat[25])
 	int i , j  ;
 	for( i = 0 ; i < 5 ; i++)
 		for( j = 0 ; j < 5 ; j++)
-			mat[i*5+j] = (i == 4 ||j == 4) ? -1 :(i!=j ?-b :a);
+			mat[i*5+j] = (i == 4 ||j == 4) ? -b :(i!=j ?-b :a);
 
 }
 /*
@@ -52,9 +55,11 @@ static inline opt_t *init_opt()
 	opt->zdrop =  100 ;
 	opt->o_del = opt->o_ins = 6 ;
 	opt->e_del = opt->e_ins = 1 ;
+	opt->min_extend_len = 30 ;
 	gen_mat(opt->a,opt->b,opt->mat);
 	opt->w = 100;
 	opt->threshold = 30 ;
+	opt->n_thread =  1 ;
 	return opt;
 }
 
@@ -75,7 +80,7 @@ int	main(int argc , char *argv[])
  *    parse the command.. 
  */
 	int c =  0 , rc = 0 ;
-	while( ( c = getopt(argc , argv ,"f:v:z:k:A:B:I:T:i:D:d:w:")) != -1){
+	while( ( c = getopt(argc , argv ,"f:v:z:k:A:B:I:T:i:D:d:w:t:e:")) != -1){
 		switch(c){
 			/* All state... */
 			case 'f':  freopen(optarg,"w",stdout);  break;   
@@ -90,8 +95,10 @@ int	main(int argc , char *argv[])
 			case 'D':  opt->o_del =  atoi(optarg); break;
 			case 'd':  opt->e_del =  atoi(optarg); break;
 			case 'w':  opt->w =  atoi(optarg); break;
+			case 'e':  opt->min_extend_len = atoi(optarg); break ;
 
 			case 'T':  opt->threshold =  atoi(optarg) ; break ;
+			case 't':  opt->n_thread =  atoi(optarg) ; break ;
 
 			default:   goto  FAILURE_EXIT;	
 				   
@@ -155,8 +162,10 @@ int	main(int argc , char *argv[])
 	return  EXIT_SUCCESS;
 
 FAILURE_EXIT:		
+	 
+	usage(opt);
 	free(opt);
-	return  usage();
+	return EXIT_FAILURE ;
 
 ALN_FAILURE_EXIT:
 

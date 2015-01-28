@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <pthread.h>
 #include <assert.h>
 #include <ctype.h>
 
@@ -229,7 +230,7 @@ void  mark_chain_se(aln_chain_v *av ,const opt_t *opt)
 			at->seedcov += (p->query_e - p->query_b);
 		}
 
-		if(at->n >= 2 || at->seedcov >= 50 ) 
+		if(at->n >= 2 || at->seedcov >= opt->min_extend_len) 
 			at->flags =  ALLOW_EXTEND ;
 		else	
 			at->flags  = 0 ;
@@ -376,7 +377,7 @@ int  linear_aln( const opt_t *opt ,  const seq_t *seq , aln_seed_t *d , aln_res_
 
 		read_dist += 50;
 		ref_dist += 50 ;
-		if(ref_b + ref_dist >  (opt->fr->idx->bns->l_pac >> 1)  && query_b + read_dist > seq->len  )  goto EXIT;
+		if(ref_b + ref_dist >  (opt->fr->idx->bns->l_pac >> 1)  || query_b + read_dist > seq->len  )  goto EXIT;
 
 		char2nt4(&bseq,seq->len,seq->seq,0);
 		seq_reverse(seq->len,bseq);
@@ -585,8 +586,9 @@ void cm_chain_extend(aln_chain_t *at, aln_res_v *rev ,const seq_t *seq , const o
 					short_result(res_left,0,&res,opt);
 
 				}else if ( res.ref_b - res_left->ref_e < MAX_LONG_LENGTH || res.query_b - res_left->query_e < MAX_LONG_LENGTH){
-					
-					linear_aln(opt , seq , res_left, &res , 0);
+					;
+					//res_left->flags	&= DISALLOW_EXTEND ;
+					//linear_aln(opt , seq , res_left, &res , 0);
 				}
 			}
 				// left side smith-waterman 
@@ -606,12 +608,15 @@ void cm_chain_extend(aln_chain_t *at, aln_res_v *rev ,const seq_t *seq , const o
 				 *  	short extend for reads left side. 
 				 */
 					short_result(res_right,1,&res,opt);
-				} else if( res_right->ref_b - p->ref_e <  MAX_LONG_LENGTH|| res_right->query_b - p->query_e <  MAX_LONG_LENGTH){
+				} 
+				else if( res_right->ref_b - p->ref_e <  MAX_LONG_LENGTH|| res_right->query_b - p->query_e <  MAX_LONG_LENGTH){
 				/* 	long  extend for reads left side. 
 				 * 	too long  perform  smith-waterman ,
 				 * 	perform  linear mapping  
 				 */
-					linear_aln(opt, seq , res_right , &res , 1);
+					;
+					//res_right->flags &= DISALLOW_EXTEND ;
+					//linear_aln(opt, seq , res_right , &res , 1);
 					
 				}
 
@@ -683,6 +688,17 @@ void  cm_chain2aln(aln_chain_v *av , aln_res_v *rev , const seq_t *seq ,const op
 		unit_extend_1(seq->name,rev,0,opt->l_seed,opt);
 		print_resv_info(rev);
 	}
+}
+int  cm_chain_core1(const opt_t *opt, const seq_t *seq ,  aln_res_v *rev)
+{
+	aln_chain_v *av = cm_mer2chain(opt,seq);
+	if(opt->verbose == 1)
+		test_pos(seq->name , *av , 0 , opt->l_seed , opt);
+	mark_chain_se(av,opt);
+	cm_chain2aln(av,rev,seq,opt);
+	aln_chain_v_free(*av);
+	free(av);
+	return  0 ;
 }
 
 int  cm_chain_core(const opt_t *opt , const mseq_t *mseq , aln_res_v  *rev)
@@ -821,6 +837,11 @@ aln_info_t res2alninfo(const opt_t *opt , aln_res_t *res , const seq_t  *seq )
 		last_sc = score ;
 
 	}while( i++<3 && score < res->app_score - opt->a);
+
+	if(a.cigar == NULL){
+		free(query);
+		return a ;
+	}
 
 
 	l_MD  = strlen((char *)(a.cigar + a.n_cigar)) + 1 ;
@@ -986,8 +1007,14 @@ int    aln2sam(const opt_t *opt , aln_info_t *a ,  int n ,aln_info_t *m  , kstri
 }
 
 
-int	print_sam()
+int	print_sam( const mseq_t *mseq )
 {
+	int i ;
+	for( i = 0 ;  i < mseq->n_seq ; i++){
+		seq_t *seq =  mseq->seq + i ;
+		if(seq->sam)
+			printf("%s",seq->sam);
+	}
 	return 0 ;
 }
 
@@ -1045,9 +1072,10 @@ int	se_core(const opt_t *opt , seq_t *seq , const aln_res_v *rev)
 		aln_info_t  *p = kv_pushp(aln_info_t,aa);
 
 		p->flag = 0 ;
-
 		p->n_cigar = 0 ;
+
 		*p = res2alninfo(opt , res , seq);
+		if(p->cigar == NULL)   aa.n-- ;
 		/* MapQ  */
 		p->mapq = mq ;
 
@@ -1076,6 +1104,7 @@ int	se_core(const opt_t *opt , seq_t *seq , const aln_res_v *rev)
 	return 0 ;
 }
 
+
 int	cm_se( const opt_t *opt , const mseq_t *mseq , aln_res_v *rev)
 {
 
@@ -1090,19 +1119,55 @@ int	cm_se( const opt_t *opt , const mseq_t *mseq , aln_res_v *rev)
 
 		se_core(opt ,seq , q);
 		
-		if(seq->sam) printf("%s",seq->sam);
 	}
 
 	return 0 ;
 }
+typedef struct {
+	mseq_t *mseq ;
+	opt_t  *opt ;
+	aln_res_v  *rev[2] ;
+} worker_t ;
 
-
-int  aln_core(const opt_t *opt)
+#if 1
+static  void worker1(void *data , int  i , int tid)
 {
+	//int  cm_chain_core1(const opt_t *opt, const seq_t *seq ,  aln_res_v *rev)
+	//int	se_core(const opt_t *opt , seq_t *seq , const aln_res_v *rev)
+	worker_t  *t =  (worker_t *)data;
+	seq_t *seq = t->mseq[0].seq + i ;
+	aln_res_v  *rev =  t->rev[0] + i ;
+
+	if(t->opt->flag & F_PE){
+		;
+	}else {
+		cm_chain_core1(t->opt, seq , rev);
+		se_core(t->opt,seq,rev);
+	}
+
+	/*
+	if(t->opt->flag & F_PE){
+		cm_chain_core(t->opt,&t->mseq[0],t->rev[0]);
+		cm_chain_core(t->opt,&t->mseq[1],t->rev[1]);
+	}else   cm_chain_core(t->opt,&t->mseq[0],t->rev[0]);
+
+	if(t->opt->flag & F_PE)  
+		cm_pe(t->opt,t->rev);
+	else	
+		cm_se(t->opt,&t->mseq[0],t->rev[0]);
+	 */
+}
+
+#endif
+int  aln_core(opt_t *opt)
+{
+	extern void kt_for(int n_thread , void (*func)(void*,int,int),void *data , int n);
 	mseq_t  *mseq;
 	int  i ;
 //     store alignment result 	
 	aln_res_v  *rev[2] ;
+
+	worker_t  *t = malloc(sizeof(worker_t));
 	
 	if(opt->flag & F_PE){
 		mseq = calloc(2,sizeof(mseq_t));
@@ -1119,10 +1184,16 @@ int  aln_core(const opt_t *opt)
 		mseq =  calloc(1,sizeof(mseq_t));
 		mseq[0].n_need = opt->n_need ;
 		rev[0]  = malloc(opt->n_need*sizeof(aln_res_v));
+		rev[1]  =  NULL ;
 		for( i = 0 ; i < opt->n_need ; i++)
 			kv_init(rev[0][i]);
 		
 	}
+
+	t->mseq = mseq ;
+	t->opt  = opt ;
+	t->rev[0] = rev[0] ;
+	t->rev[1] = rev[1] ;
 
 	double t_aln_start  ,  t_aln_end ;
 	
@@ -1150,15 +1221,22 @@ int  aln_core(const opt_t *opt)
 			break;
 		}
 
-		if(opt->flag & F_PE){
-			cm_chain_core(opt,&mseq[0],rev[0]);
-			cm_chain_core(opt,&mseq[1],rev[1]);
-		}else   cm_chain_core(opt,&mseq[0],rev[0]);
+		/*   use multi-core to  accelerate fuc ,calling kt_for()*/
+		if(opt->n_thread > 1){
+			kt_for(opt->n_thread , worker1 , t , mseq[0].n_seq );
+		}else {
+			if(opt->flag & F_PE){
+				cm_chain_core(opt,&mseq[0],rev[0]);
+				cm_chain_core(opt,&mseq[1],rev[1]);
+			}else   cm_chain_core(opt,&mseq[0],rev[0]);
 
-		if(opt->flag & F_PE)  
-			cm_pe(opt,rev);
-		else	
-			cm_se(opt,&mseq[0],rev[0]);
+			if(opt->flag & F_PE)  
+				cm_pe(opt,rev);
+			else	
+				cm_se(opt,&mseq[0],rev[0]);
+
+		}
+		print_sam(&t->mseq[0]);
 		/*
 		 * clear the result structure
 		 */
@@ -1191,6 +1269,7 @@ int  aln_core(const opt_t *opt)
 		free(rev[1]);
 	}
 
+	free(t);
 	free(mseq);
 	return EXIT_SUCCESS;
 }

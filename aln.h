@@ -38,6 +38,11 @@ typedef struct {
 	int  flag;
 	/*  score threshold output */
 	int  threshold ;
+	/*  minimun extend length */
+	int  min_extend_len ;
+
+	/*   number of  threads */
+	int  n_thread ;
 } opt_t ;
 
 
@@ -148,7 +153,7 @@ typedef struct {
 
 
 
-int aln_core(const opt_t *opt);
+int aln_core(opt_t *opt);
 int cm_pe(const opt_t *opt , aln_res_v *rev[2]);
 int print_sam();
 
